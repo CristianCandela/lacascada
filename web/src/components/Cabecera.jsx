@@ -3,7 +3,7 @@ export default function Cabecera({ perfil, onSalir }) {
     <header className="top">
       <div className="marca">
         <strong>La Cascada</strong>
-        <span className="sub">Reservas y control de asistencia · Demo con datos ficticios</span>
+        <span className="sub">Reservas y control de asistencia</span>
       </div>
       {perfil && (
         <div className="usuario">

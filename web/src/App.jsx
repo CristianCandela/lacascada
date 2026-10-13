@@ -44,7 +44,7 @@ function Aplicacion() {
         )}
       </main>
       <footer className="pie">
-        MVP académico UTP · Innovación y Transformación Digital · Todos los datos mostrados son ficticios.
+        MVP académico UTP · Innovación y Transformación Digital 
       </footer>
     </>
   );
