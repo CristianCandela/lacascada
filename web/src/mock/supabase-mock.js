@@ -5,6 +5,22 @@ const USERS = {
   'admin@demo.test': { id: 'u2', pass: 'demo123', perfil: { nombre: 'Administrador de prueba', rol: 'administrador' } }
 };
 const db = { perfiles: [], clientes: [], citas: [], solicitudes: [] };
+// Aforos de prueba (en producción están en la tabla public.aforos).
+const AFOROS = { 'sauna|Año Nuevo': 2, 'sauna|Santa Rosa': 4, 'gimnasio|Año Nuevo': 30, 'gimnasio|Santa Rosa': 20 };
+const hora = (iso) => String(iso).slice(0, 13);
+const ocupados = (servicio, sede, iso, excepto) => db.citas.filter((x) => x.servicio === servicio && x.sede === sede
+  && hora(new Date(x.fecha_hora_cita).toISOString()) === hora(new Date(iso).toISOString())
+  && x.estado_asistencia !== 'cancelo' && x.id_cita !== excepto).length;
+function validarCita(n, excepto) {
+  if (n.estado_asistencia === 'cancelo' || new Date(n.fecha_hora_cita) <= new Date()) return null;
+  if (db.citas.some((x) => x.id_cita !== excepto && x.id_cliente === n.id_cliente && x.servicio === n.servicio
+    && x.fecha_hora_cita === n.fecha_hora_cita && x.estado_asistencia !== 'cancelo'))
+    return new Error('duplicate key value violates unique constraint "citas_sin_duplicado"');
+  const cap = AFOROS[`${n.servicio}|${n.sede}`];
+  if (cap && ocupados(n.servicio, n.sede, n.fecha_hora_cita, excepto) >= cap)
+    return new Error('Aforo máximo completado para esta franja horaria');
+  return null;
+}
 Object.keys(USERS).forEach((e) => db.perfiles.push({ id: USERS[e].id, ...USERS[e].perfil }));
 let sesion = null; let redCaida = false; let seq = 1;
 
@@ -42,7 +58,11 @@ function builder(tabla) {
         const nuevo = { ...q.payload };
         if (tabla === 'clientes') nuevo.id_cliente = `k${++seq}`;
         if (tabla === 'solicitudes') { nuevo.id_solicitud = `s${++seq}`; nuevo.estado = 'pendiente'; }
-        if (tabla === 'citas') { nuevo.id_cita = `c${++seq}`; nuevo.fecha_hora_registro = new Date().toISOString(); }
+        if (tabla === 'citas') {
+          nuevo.id_cita = `c${++seq}`; nuevo.fecha_hora_registro = new Date().toISOString();
+          const err = validarCita(nuevo, null);
+          if (err) return resolve({ data: null, error: err });
+        }
         db[tabla].push(nuevo);
         return resolve(q.single ? { data: nuevo, error: null } : { data: null, error: null });
       }
@@ -84,8 +104,25 @@ export function createClient() {
         db.citas.push(cita); sol.estado = 'aprobada';
         return Promise.resolve({ data: cita.id_cita, error: null });
       }
+      if (nombre === 'disponibilidad') {
+        const cap = AFOROS[`${args.p_servicio}|${args.p_sede}`] || 0;
+        const oc = ocupados(args.p_servicio, args.p_sede, args.p_fecha_hora, null);
+        return Promise.resolve({ data: { capacidad: cap, ocupados: oc, libres: Math.max(cap - oc, 0) }, error: null });
+      }
+      if (nombre === 'riesgo_clientes') {
+        const hace30 = Date.now() - 30 * 24 * 3600 * 1000;
+        const data = args.p_ids.map((id) => {
+          const h = db.citas.filter((x) => x.id_cliente === id && ['asistio', 'no_asistio'].includes(x.estado_asistencia)
+            && new Date(x.fecha_hora_cita).getTime() >= hace30 && new Date(x.fecha_hora_cita).getTime() <= Date.now());
+          const no = h.filter((x) => x.estado_asistencia === 'no_asistio').length;
+          return { id_cliente: id, total: h.length, no_asistio: no, tasa: h.length ? Math.round((no / h.length) * 1000) / 10 : 0,
+            alto_riesgo: h.length >= 2 && (no / h.length) * 100 >= 30 };
+        }).filter((x) => x.total > 0);
+        return Promise.resolve({ data, error: null });
+      }
       const c = db.citas; const ahora = new Date().toISOString();
       const venc = c.filter((x) => x.fecha_hora_cita <= ahora);
+      const cuenta = (e) => c.filter((x) => x.estado_asistencia === e).length;
       const agr = (campo) => {
         const m = {};
         c.forEach((x) => {
@@ -95,12 +132,34 @@ export function createClient() {
         });
         return Object.values(m);
       };
+      const fin = c.filter((x) => ['asistio', 'no_asistio'].includes(x.estado_asistencia));
+      const con = fin.filter((x) => x.recordatorio_enviado_en); const sin = fin.filter((x) => !x.recordatorio_enviado_en);
+      const tiempos = c.filter((x) => typeof x.segundos_registro === 'number').map((x) => x.segundos_registro);
+      const dh = {};
+      fin.forEach((x) => {
+        const f = new Date(x.fecha_hora_cita); const dow = f.getDay() === 0 ? 7 : f.getDay();
+        const k = (dh[`${dow}-${f.getHours()}`] = dh[`${dow}-${f.getHours()}`] || { dow, hora: f.getHours(), asistio: 0, no_asistio: 0 });
+        k[x.estado_asistencia]++;
+      });
+      const dia = {};
+      venc.forEach((x) => {
+        const f = new Date(x.fecha_hora_cita); const p2 = (n) => String(n).padStart(2, '0');
+        const d = `${f.getFullYear()}-${p2(f.getMonth() + 1)}-${p2(f.getDate())}`;
+        const k = (dia[d] = dia[d] || { dia: d, asistio: 0, no_asistio: 0, cancelo: 0 });
+        if (k[x.estado_asistencia] !== undefined) k[x.estado_asistencia]++;
+      });
       return Promise.resolve({ data: {
         total_citas: c.length, citas_vencidas: venc.length,
         vencidas_con_registro: venc.filter((x) => x.estado_asistencia !== 'pendiente').length,
-        asistio: c.filter((x) => x.estado_asistencia === 'asistio').length,
-        no_asistio: c.filter((x) => x.estado_asistencia === 'no_asistio').length,
-        por_servicio: agr('servicio'), por_sede: agr('sede') }, error: null });
+        asistio: cuenta('asistio'), no_asistio: cuenta('no_asistio'), cancelo: cuenta('cancelo'), pendiente: cuenta('pendiente'),
+        confirmadas: c.filter((x) => x.confirmada_en).length,
+        tiempo_promedio_seg: tiempos.length ? tiempos.reduce((a, b) => a + b, 0) / tiempos.length : null,
+        registros_completos: fin.length,
+        por_servicio: agr('servicio'), por_sede: agr('sede'),
+        por_dia: Object.values(dia), por_dia_hora: Object.values(dh),
+        recordatorio: { con_total: con.length, con_no: con.filter((x) => x.estado_asistencia === 'no_asistio').length,
+          sin_total: sin.length, sin_no: sin.filter((x) => x.estado_asistencia === 'no_asistio').length },
+        clientes_riesgo: [] }, error: null });
     }
   };
 }

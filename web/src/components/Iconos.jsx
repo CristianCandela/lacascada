@@ -49,6 +49,24 @@ export function Logo({ tam = 40 }) {
   );
 }
 
+export function Logof({ tam = 40 }) {
+  const [fallo, setFallo] = useState(false);
+  return (
+    <span className="logof" style={{ display: 'inline-block', width: tam, height: tam }}>
+      {fallo ? (
+        <span className="logo-sinfondo" aria-hidden="true">C</span>
+      ) : (
+        <img 
+          src="/logof.png" 
+          alt="Cascada Gym" 
+          onError={() => setFallo(true)} 
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+        />
+      )}
+    </span>
+  );
+}
+
 export function iniciales(nombre = '') {
   const p = String(nombre).trim().split(/\s+/).filter(Boolean);
   if (!p.length) return '?';

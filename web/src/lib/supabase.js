@@ -14,5 +14,9 @@ export function esFalloDeRed(err) {
 }
 
 export function mensajeError(err) {
-  return esFalloDeRed(err) ? MSG_RED : `Ocurrió un error: ${(err && err.message) || 'inténtalo otra vez.'}`;
+  if (esFalloDeRed(err)) return MSG_RED;
+  const m = String((err && err.message) || '');
+  if (m.includes('Aforo máximo')) return 'Aforo máximo completado para esta franja horaria.';
+  if (m.includes('citas_sin_duplicado')) return 'Ese cliente ya tiene una reserva del mismo servicio a esa hora.';
+  return `Ocurrió un error: ${m || 'inténtalo otra vez.'}`;
 }

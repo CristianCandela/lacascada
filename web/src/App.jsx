@@ -33,7 +33,7 @@ function Aplicacion() {
     <div className="app">
       <aside className="lateral">
         <div className="marca">
-          <Logo tam={44} />
+          <Logo tam={98} />
           <span className="marca-texto"><b>Cascada Gym</b><small>Control de reservas</small></span>
         </div>
         <nav className="tabs" role="tablist" aria-label="Secciones">
@@ -45,7 +45,7 @@ function Aplicacion() {
             </button>
           ))}
         </nav>
-        <p className="lateral-pie">MVP académico UTP · Innovación y Transformación Digital. Todos los datos mostrados son ficticios.</p>
+        <p className="lateral-pie">MVP académico UTP · Innovación y Transformación Digital </p>
       </aside>
       <div className="contenido">
         <Cabecera perfil={perfil} onSalir={salir} />

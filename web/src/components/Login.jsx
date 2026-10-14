@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import Icono, { Logo } from './Iconos';
+import Icono, { Logo, Logof } from './Iconos';
 
 export default function Login({ onEntrar, error }) {
   const [email, setEmail] = useState('');
@@ -24,16 +24,16 @@ export default function Login({ onEntrar, error }) {
     <div className="login">
       <aside className="login-hero" aria-hidden="true">
         <div className="login-hero-texto">
-          <Logo tam={56} />
+          <Logof tam={650} />
           <p className="login-lema">Menos citas perdidas, más tiempo para tus socios.</p>
           <p className="login-sub">Reservas y control de asistencia para el sauna y gimnasio.</p>
         </div>
       </aside>
       <section className="login-panel">
         <div className="login-tarjeta">
-          <Logo tam={64} />
+          <Logo tam={350} align="center" />
           <h1>Iniciar sesión</h1>
-          <p className="ayuda">Acceso solo para el personal de recepción y administración.</p>
+          <p className="ayuda">Acceso solo para el personal de recepcsión y administración.</p>
           <form onSubmit={enviar} noValidate>
             {msg && (
               <div id="login-error" className="alerta-form" role="alert">

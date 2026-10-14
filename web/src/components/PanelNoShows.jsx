@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { supabase, mensajeError } from '../lib/supabase';
-import { aCSV, calcularPorcentajes, pctNoShow } from '../lib/logica';
+import { aCSV, calcularPorcentajes, matrizCalor, pctNoShow, reduccionRecordatorio, serieDiaria } from '../lib/logica';
 import Icono from './Iconos';
+import { BarraTasa, BarrasDiarias, Dona, MapaCalor } from './Graficos';
 
-function Kpi({ valor, texto, titulo, icono, tono, clase, children }) {
+function Kpi({ valor, unidad = '%', texto, titulo, icono, tono, clase, children }) {
   return (
     <div className={`kpi ${tono || ''}`}>
       <div className="kpi-cab"><span className="eti">{titulo}</span><span className="resumen-ico"><Icono n={icono} tam={20} /></span></div>
-      <div className={`num ${clase || ''}`}>{valor}%</div>
+      <div className={`num ${clase || ''}`}>{valor}{valor === '—' ? '' : unidad}</div>
       <div className="det">{texto}</div>
       {children}
     </div>
@@ -62,7 +63,7 @@ export default function PanelNoShows({ perfil, onAviso }) {
   async function descargar() {
     try {
       const r = await supabase.from('citas')
-        .select('id_cita, id_cliente, servicio, sede, fecha_hora_cita, fecha_hora_registro, recordatorio_enviado_en, confirmada_en, estado_asistencia')
+        .select('id_cita, id_cliente, servicio, sede, fecha_hora_cita, fecha_hora_registro, recordatorio_enviado_en, confirmada_en, estado_asistencia, segundos_registro')
         .order('fecha_hora_cita');
       if (r.error) throw r.error;
       const blob = new Blob([aCSV(r.data || [])], { type: 'text/csv;charset=utf-8' });
@@ -86,6 +87,10 @@ export default function PanelNoShows({ perfil, onAviso }) {
 
   const p = datos ? calcularPorcentajes(datos) : null;
   const metaOk = p && p.pct_registro >= 90;
+  const rec = datos ? reduccionRecordatorio(datos.recordatorio) : null;
+  const tiempo = datos && datos.tiempo_promedio_seg !== null && datos.tiempo_promedio_seg !== undefined
+    ? Number(datos.tiempo_promedio_seg) : null;
+  const completos = datos ? Number(datos.registros_completos) || 0 : 0;
 
   return (
     <>
@@ -116,7 +121,74 @@ export default function PanelNoShows({ perfil, onAviso }) {
                 <i style={{ left: '90%' }} title="Meta 90%" />
               </div>
             </Kpi>
+            <Kpi titulo="Tiempo promedio de marcado" icono="reloj" tono="azul" unidad=" s"
+              valor={tiempo === null ? '—' : tiempo}
+              clase={tiempo !== null && tiempo <= 15 ? 'meta-ok' : ''}
+              texto={tiempo === null ? 'Aún sin marcas con tiempo registrado' : `Meta ≤ 15 s (clic → guardado)`} />
+            <Kpi titulo="Registros completos para APF3" icono="agenda" tono="verde" unidad=""
+              valor={completos}
+              clase={completos >= 100 ? 'meta-ok' : 'meta-mal'}
+              texto={`Meta ≥ 100 (asistió / no asistió)`}>
+              <div className="progreso" role="img" aria-label={`${completos} de 100 registros`}>
+                <span className={completos >= 100 ? 'ok' : 'falta'} style={{ width: `${Math.min(completos, 100)}%` }} />
+              </div>
+            </Kpi>
+            <Kpi titulo="Reducción con recordatorio" icono="whatsapp" tono="naranja"
+              valor={rec.reduccion === null ? '—' : rec.reduccion}
+              clase={rec.reduccion !== null && rec.reduccion >= 25 ? 'meta-ok' : ''}
+              texto={rec.reduccion === null ? 'Faltan citas con y sin recordatorio' : 'Meta ≥ 25 % (relativa)'} />
           </div>
+
+          <div className="desgloses fila-grafico">
+            <section className="tarjeta">
+              <h2>Asistencia por día</h2>
+              <p className="ayuda graf-ayuda">Últimos 14 días. Muestra si el registro de recepción es constante.</p>
+              <BarrasDiarias serie={serieDiaria(datos.por_dia, 14)} />
+            </section>
+            <section className="tarjeta">
+              <h2>Estado de las citas</h2>
+              <p className="ayuda graf-ayuda">Todas las citas del sistema.</p>
+              <Dona partes={[
+                { id: 'a', texto: 'Asistió', valor: datos.asistio, clase: 'g-verde-t', punto: 'verde' },
+                { id: 'n', texto: 'No asistió', valor: datos.no_asistio, clase: 'g-naranja-t', punto: 'naranja' },
+                { id: 'c', texto: 'Canceló', valor: datos.cancelo || 0, clase: 'g-gris-t', punto: 'gris' },
+                { id: 'p', texto: 'Pendiente', valor: datos.pendiente || 0, clase: 'g-azul-t', punto: 'azul' }
+              ]} />
+            </section>
+          </div>
+
+          <section className="tarjeta">
+            <h2>¿Cuándo faltan más los clientes?</h2>
+            <p className="ayuda graf-ayuda">Hipótesis H2: ¿existe un patrón por día y hora? Es la base de las variables del modelo de APF3.</p>
+            <MapaCalor matriz={matrizCalor(datos.por_dia_hora)} />
+          </section>
+
+          <div className="desgloses">
+            <section className="tarjeta">
+              <h2>Recordatorio por WhatsApp</h2>
+              <p className="ayuda graf-ayuda">Hipótesis H4: citas con y sin recordatorio enviado.</p>
+              <BarraTasa titulo="Con recordatorio" tasa={rec.tasa_con} no={datos.recordatorio.con_no} total={datos.recordatorio.con_total} clase="verde" />
+              <BarraTasa titulo="Sin recordatorio" tasa={rec.tasa_sin} no={datos.recordatorio.sin_no} total={datos.recordatorio.sin_total} clase="naranja" />
+              <p className="nota-panel">
+                {rec.reduccion === null
+                  ? 'Aún no hay suficientes citas en ambos grupos para comparar.'
+                  : `Reducción relativa: ${rec.reduccion}%.`}
+                {' '}Es una comparación observacional: el personal decide a quién recordar, así que no prueba causalidad por sí sola.
+                {datos.recordatorio.con_total < 20 ? ' Con menos de 20 citas con recordatorio, tómala como indicio.' : ''}
+              </p>
+            </section>
+            <section className="tarjeta">
+              <h2>Clientes de alto riesgo</h2>
+              <p className="ayuda graf-ayuda">Inasistencia ≥ 30 % en los últimos 30 días (mínimo 2 citas).</p>
+              {(datos.clientes_riesgo || []).length === 0 && <p className="vacio">Ningún cliente cumple la regla por ahora.</p>}
+              <ul className="lista-riesgo">
+                {(datos.clientes_riesgo || []).map((c) => (
+                  <li key={c.nombre}><span><b>{c.nombre}</b><small>{c.no_asistio} inasistencias de {c.total} citas</small></span><em className="etq riesgo">{c.tasa}%</em></li>
+                ))}
+              </ul>
+            </section>
+          </div>
+
           <div className="desgloses">
             <Desglose titulo="Por servicio" filas={datos.por_servicio} />
             <Desglose titulo="Por sede" filas={datos.por_sede} />

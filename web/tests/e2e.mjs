@@ -181,6 +181,120 @@ function manana(h) {
   chk('24. Aprobar solicitud crea la cita en la agenda', (await p.textContent('.tabla-wrap tbody')).includes('Cliente Demo 31'));
   await p.screenshot({ path: carpeta + '/11_solicitud_aprobada.png' });
 
+  // --- Migración 3: riesgo, «Canceló», log de tiempo, aforo, duplicados y gráficos ---
+  const q = await nuevaPagina();
+  await login(q, 'recepcion@demo.test', 'demo123');
+  await q.waitForSelector('.tabs');
+  // Historial ficticio: Cliente Demo 02 faltó 2 de 3 veces en los últimos días; k1 solo tiene 1 cita con estado final.
+  await q.evaluate(() => {
+    const { db } = window.__mock;
+    const dias = (n, h) => { const d = new Date(); d.setDate(d.getDate() - n); d.setHours(h, 0, 0, 0); return d.toISOString(); };
+    const hoyH = (h) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.toISOString(); };
+    db.clientes.push({ id_cliente: 'k2', nombre: 'Cliente Demo 02', dni: '70000002', telefono: '900000002' });
+    [['no_asistio', 3], ['no_asistio', 5], ['asistio', 8]].forEach(([e, n], i) => db.citas.push({
+      id_cita: 'h' + i, id_cliente: 'k2', servicio: 'sauna', sede: 'Año Nuevo', fecha_hora_cita: dias(n, 18),
+      fecha_hora_registro: dias(n + 1, 9), estado_asistencia: e }));
+    db.citas.push({ id_cita: 'r1', id_cliente: 'k2', servicio: 'gimnasio', sede: 'Año Nuevo', fecha_hora_cita: hoyH(22),
+      fecha_hora_registro: hoyH(0), estado_asistencia: 'pendiente' });
+  });
+  await q.click('[data-tab="agenda"]');
+  await q.waitForSelector('.tabla-wrap table');
+  await q.click('#btn-agenda');
+  await q.waitForSelector('[data-riesgo="alto"]');
+  chk('25. Alto riesgo: etiqueta solo al cliente con ≥30 % de inasistencia (2 de 3)',
+    (await q.locator('[data-riesgo="alto"]').count()) === 1 && (await q.locator('tr[data-id="r1"] [data-riesgo="alto"]').count()) === 1);
+  chk('26. Cliente con 1 sola cita no se marca como riesgo', (await q.locator('tr[data-id="c2"] [data-riesgo="alto"]').count()) === 0);
+  await q.screenshot({ path: carpeta + '/12_alto_riesgo.png' });
+  await q.check('#a-riesgo');
+  chk('27. Filtro «Solo alto riesgo» deja solo la cita de riesgo', (await q.locator('.tabla-wrap tbody tr').count()) === 1);
+  await q.uncheck('#a-riesgo');
+
+  await q.locator('tr[data-id="c2"] [data-accion="cancelo"]').click();
+  await q.waitForFunction(() => window.__mock.db.citas.find(c => c.id_cita === 'c2').estado_asistencia === 'cancelo');
+  const reg = await q.evaluate(() => window.__mock.db.citas.find(c => c.id_cita === 'c2'));
+  chk('28. «Canceló» se guarda y se muestra', (await q.locator('tr[data-id="c2"] .etq.cancelo').textContent()).includes('Canceló'));
+  chk('29. Log de tiempo: guarda marcada_en y segundos_registro (número ≥ 0)',
+    !!reg.marcada_en && typeof reg.segundos_registro === 'number' && reg.segundos_registro >= 0);
+
+  // Aforo: en el mock el sauna de Año Nuevo admite 2 por franja
+  await q.click('[data-tab="registrar"]');
+  const reservar = async (dni) => {
+    await llenar(q, { nombre: 'Aforo Prueba Uno', dni, telefono: '9000000' + dni.slice(-2), fecha: manana(20) });
+    await q.click('#btn-reserva');
+  };
+  await reservar('70000091');
+  await q.waitForFunction(() => document.getElementById('r-resultado').textContent.includes('guardada'));
+  await llenar(q, { dni: '70000092', nombre: 'Aforo Prueba Dos', telefono: '900000092', fecha: manana(20) });
+  await q.waitForSelector('#r-cupos');
+  chk('30. Formulario muestra los cupos libres de la franja', (await q.textContent('#r-cupos')).includes('1 de 2'));
+  await q.click('#btn-reserva');
+  await q.waitForFunction(() => document.getElementById('r-resultado').textContent.includes('guardada'));
+  const antesAforo = await q.evaluate(() => window.__mock.db.citas.length);
+  await llenar(q, { dni: '70000093', nombre: 'Aforo Prueba Tres', telefono: '900000093', fecha: manana(20) });
+  await q.waitForFunction(() => (document.getElementById('r-cupos') || {}).textContent?.includes('Aforo máximo'));
+  await q.click('#btn-reserva');
+  await q.waitForFunction(() => document.querySelector('[data-error="fecha_hora"]').textContent.includes('Aforo máximo'));
+  chk('31. Aforo lleno: bloquea la reserva con el mensaje y no guarda',
+    (await q.evaluate(() => window.__mock.db.citas.length)) === antesAforo);
+  await q.screenshot({ path: carpeta + '/13_aforo_lleno.png' });
+
+  // Cancelar libera el cupo
+  await q.click('[data-tab="agenda"]');
+  const dm2 = new Date(); dm2.setDate(dm2.getDate() + 1);
+  const p2 = (n) => String(n).padStart(2, '0');
+  await q.fill('#a-fecha', `${dm2.getFullYear()}-${p2(dm2.getMonth() + 1)}-${p2(dm2.getDate())}`);
+  await q.waitForSelector('.tabla-wrap tbody tr');
+  await q.locator('.tabla-wrap tbody tr').first().locator('[data-accion="cancelo"]').click();
+  await q.waitForFunction(() => window.__mock.db.citas.filter(c => c.estado_asistencia === 'cancelo').length >= 2);
+  await q.click('[data-tab="registrar"]');
+  await llenar(q, { dni: '70000093', nombre: 'Aforo Prueba Tres', telefono: '900000093', fecha: manana(20) });
+  await q.click('#btn-reserva');
+  await q.waitForFunction(() => document.getElementById('r-resultado').textContent.includes('guardada'));
+  chk('32. Cancelar una cita libera el cupo y permite reservar',
+    (await q.evaluate(() => window.__mock.db.citas.length)) === antesAforo + 1);
+
+  // Duplicado: mismo cliente, servicio y hora
+  await llenar(q, { dni: '70000093', nombre: 'Aforo Prueba Tres', telefono: '900000093', servicio: 'gimnasio', fecha: manana(9) });
+  await q.click('#btn-reserva');
+  await q.waitForFunction(() => document.getElementById('r-resultado').textContent.includes('guardada'));
+  await llenar(q, { dni: '70000093', nombre: 'Aforo Prueba Tres', telefono: '900000093', servicio: 'gimnasio', fecha: manana(9) });
+  await q.click('#btn-reserva');
+  await q.waitForSelector('#aviso');
+  chk('33. Reserva duplicada (mismo cliente, servicio y hora) se rechaza con mensaje claro',
+    (await q.textContent('#aviso')).includes('ya tiene una reserva'));
+
+  // Panel con gráficos (administrador)
+  const a = await nuevaPagina();
+  await login(a, 'admin@demo.test', 'demo123');
+  await a.waitForSelector('.tabs');
+  await a.evaluate(() => {
+    const { db } = window.__mock;
+    const dias = (n, h) => { const d = new Date(); d.setDate(d.getDate() - n); d.setHours(h, 0, 0, 0); return d.toISOString(); };
+    db.clientes.push({ id_cliente: 'kx', nombre: 'Cliente Demo 09', dni: '70000009', telefono: '900000009' });
+    for (let i = 0; i < 30; i++) {
+      const no = i % 4 === 0, rec = i % 3 === 0;
+      db.citas.push({ id_cita: 'g' + i, id_cliente: 'kx', servicio: i % 2 ? 'sauna' : 'gimnasio', sede: i % 3 ? 'Año Nuevo' : 'Santa Rosa',
+        fecha_hora_cita: dias(1 + (i % 13), 8 + (i % 14)), fecha_hora_registro: dias(2 + (i % 13), 8),
+        estado_asistencia: no ? 'no_asistio' : (i % 11 === 0 ? 'cancelo' : 'asistio'),
+        recordatorio_enviado_en: rec ? dias(1, 7) : null, segundos_registro: 1.2 + (i % 5) / 10 });
+    }
+  });
+  await a.click('[data-tab="panel"]');
+  await a.waitForSelector('.grafico svg');
+  chk('34. Panel muestra gráfico de barras por día, dona, mapa de calor y cohortes',
+    (await a.locator('.grafico svg rect').count()) > 0 && (await a.locator('.dona-lista li').count()) === 4 &&
+    (await a.locator('table.calor').count()) === 1 && (await a.locator('.barra-fila').count()) >= 2);
+  chk('35. KPI de tiempo de marcado y registros completos con valores numéricos',
+    /s$/.test((await a.locator('.kpi', { hasText: 'Tiempo promedio' }).locator('.num').textContent()).trim()) &&
+    (await a.locator('.kpi', { hasText: 'Registros completos' }).locator('.num').textContent()).trim() >= 20);
+  await a.screenshot({ path: carpeta + '/14_panel_graficos.png', fullPage: true });
+  const ma = await browser.newContext({ viewport: { width: 375, height: 760 } });
+  const pa = await ma.newPage();
+  await pa.goto(url); await login(pa, 'admin@demo.test', 'demo123');
+  await pa.waitForSelector('.tabs'); await pa.click('[data-tab="panel"]'); await pa.waitForSelector('.kpis');
+  chk('36. Panel en móvil 375px sin scroll horizontal de la página', await pa.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  await pa.screenshot({ path: carpeta + '/15_panel_movil.png', fullPage: true });
+
   // Móvil
   const m = await browser.newContext({ viewport: { width: 375, height: 760 } });
   const pm = await m.newPage();
