@@ -31,6 +31,7 @@ export default function Agenda({ perfil, onAviso }) {
   const [soloRiesgo, setSoloRiesgo] = useState(false);
   const [riesgo, setRiesgo] = useState({});
   const [soloRecordar, setSoloRecordar] = useState(false);
+  const [fEstado, setFEstado] = useState('');
   const [ahora, setAhora] = useState(() => new Date());
   const admin = perfil.rol === 'administrador';
 
@@ -83,24 +84,35 @@ export default function Agenda({ perfil, onAviso }) {
     }
   }
 
-  // Registra el estado y guarda el tiempo (clic → guardado) como log de usabilidad (H1 / US09).
-  async function marcar(f, estado, ev) {
-    const inicio = performance.now();
-    const btn = ev.currentTarget;
+    // Actualiza una cita y comprueba que la base realmente cambió una fila (RLS puede devolver 0 filas sin error).
+  async function actualizar(f, cambios, btn) {
     btn.disabled = true;
     try {
-      const r = await supabase.from('citas').update({
-        estado_asistencia: estado,
-        marcada_en: new Date().toISOString(),
-        segundos_registro: Number(((performance.now() - inicio) / 1000).toFixed(2))
-      }).eq('id_cita', f.id_cita);
+      const r = await supabase.from('citas').update(cambios).eq('id_cita', f.id_cita).select('id_cita');
       if (r.error) throw r.error;
+      if (!r.data || r.data.length === 0) throw new Error('No se pudo guardar el cambio. Revisa tu sesión o tus permisos.');
       await cargar();
     } catch (e) {
       onAviso(mensajeError(e));
       btn.disabled = false;
     }
   }
+
+  // Registra el estado y guarda el tiempo (clic → guardado) como log de usabilidad (H1 / US09).
+  function marcar(f, estado, ev) {
+    const inicio = performance.now();
+    return actualizar(f, {
+      estado_asistencia: estado,
+      marcada_en: new Date().toISOString(),
+      segundos_registro: Number(((performance.now() - inicio) / 1000).toFixed(2))
+    }, ev.currentTarget);
+  }
+
+  // Corrige un registro equivocado: vuelve la cita a «pendiente».
+  function reabrir(f, ev) {
+    return actualizar(f, { estado_asistencia: 'pendiente', marcada_en: null, segundos_registro: null }, ev.currentTarget);
+  }
+
 
   function eliminar(f, ev) {
     if (!window.confirm('¿Eliminar esta cita? Esta acción no se puede deshacer.')) return;
@@ -125,6 +137,7 @@ export default function Agenda({ perfil, onAviso }) {
   const visibles = todas.filter((f) =>
     (!fServicio || f.servicio === fServicio) &&
     (!fSede || f.sede === fSede) &&
+    (!fEstado || (fEstado === 'pendiente' ? f.estado_asistencia === 'pendiente' : f.estado_asistencia !== 'pendiente')) &&
     (!soloRiesgo || (riesgo[f.id_cliente] && riesgo[f.id_cliente].alto_riesgo)) &&
     (!soloRecordar || minutosParaRecordar(f, ahora) !== null) &&
     (!q || (f.clientes && f.clientes.nombre.toLowerCase().includes(q))));
@@ -176,6 +189,12 @@ export default function Agenda({ perfil, onAviso }) {
             <option value="">Todas las sedes</option>
             <option value="Túpac Amaru">Túpac Amaru</option>
             <option value="Santa Rosa">Santa Rosa</option>
+          </select>
+          <label htmlFor="a-estado" className="sr">Estado</label>
+          <select id="a-estado" className="filtro" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
+            <option value="">Todos los estados</option>
+            <option value="pendiente">Solo pendientes</option>
+            <option value="atendida">Ya atendidas</option>
           </select>
           <label htmlFor="a-riesgo" className="chip-filtro">
             <input id="a-riesgo" type="checkbox" checked={soloRiesgo} onChange={(e) => setSoloRiesgo(e.target.checked)} />
@@ -253,9 +272,15 @@ export default function Agenda({ perfil, onAviso }) {
                       </td>
                       <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span></td>
                       <td data-label="Acción" className="acciones">
-                        <button type="button" data-accion="asistio" className="ok-btn chico" onClick={(e) => marcar(f, 'asistio', e)}><Icono n="check" tam={15} />Asistió</button>
-                        <button type="button" data-accion="no_asistio" className="peligro chico" onClick={(e) => marcar(f, 'no_asistio', e)}><Icono n="x" tam={15} />No asistió</button>
-                        <button type="button" data-accion="cancelo" className="sec chico" onClick={(e) => marcar(f, 'cancelo', e)}><Icono n="x" tam={15} />Canceló</button>
+                        {f.estado_asistencia === 'pendiente' ? (
+                          <>
+                            <button type="button" data-accion="asistio" className="ok-btn chico" onClick={(e) => marcar(f, 'asistio', e)}><Icono n="check" tam={15} />Asistió</button>
+                            <button type="button" data-accion="no_asistio" className="peligro chico" onClick={(e) => marcar(f, 'no_asistio', e)}><Icono n="x" tam={15} />No asistió</button>
+                            <button type="button" data-accion="cancelo" className="sec chico" onClick={(e) => marcar(f, 'cancelo', e)}><Icono n="x" tam={15} />Canceló</button>
+                          </>
+                        ) : (
+                          <button type="button" data-accion="reabrir" className="sec chico" title="Volver a pendiente si te equivocaste" onClick={(e) => reabrir(f, e)}><Icono n="refrescar" tam={14} />Corregir</button>
+                        )}
                         {admin && <button type="button" data-accion="eliminar" className="icono-btn borrar" aria-label="Eliminar cita" onClick={(e) => eliminar(f, e)}><Icono n="papelera" tam={16} /></button>}
                       </td>
                     </tr>

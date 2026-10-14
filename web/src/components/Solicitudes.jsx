@@ -22,7 +22,7 @@ export default function Solicitudes({ onAviso }) {
 
   useEffect(() => { cargar(); }, [cargar]);
 
-  async function resolver(id, tipo, ev) {
+  async function resolver(id, tipo, ev, fila) {
     const btn = ev.currentTarget;
     btn.disabled = true;
     try {

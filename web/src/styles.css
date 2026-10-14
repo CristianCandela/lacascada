@@ -308,3 +308,5 @@ table.calor { width: 100%; min-width: 420px; border-collapse: separate; border-s
 .etq.recordar { background: #FEF3C7; color: #92400E; }
 .cola-recordar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; padding: 12px 16px;
   border: 1px solid #F7D98B; background: #FFFBEB; border-radius: var(--radio); color: #92400E; font-size: .92rem; }
+
+  .aviso.ok { background: #ECFDF3; color: #166534; border-color: #BBF7D0; }

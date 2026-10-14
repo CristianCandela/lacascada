@@ -21,13 +21,12 @@ const TABS = [
 function Aplicacion() {
   const { cargando, perfil, error, entrar, salir } = useSesion();
   const [tab, setTab] = useState('registrar');
-  const [aviso, setAviso] = useState('');
-  const avisar = useCallback((m) => setAviso(m), []);
-
-  const cambiar = (t) => { setAviso(''); setTab(t); };
+  const [aviso, setAviso] = useState(null);
+  const avisar = useCallback((m, tipo = 'error') => setAviso(m ? { m, tipo } : null), []);
+  const cambiar = (t) => { setAviso(null); setTab(t); };
 
   if (cargando) return <p className="cargando-pagina">Cargando…</p>;
-  if (!perfil) return <Login onEntrar={entrar} error={error} />;
+  if (!perfil) return <Login onEntrar={entrar} error={error} />;  
 
   return (
     <div className="app">
@@ -49,7 +48,7 @@ function Aplicacion() {
       </aside>
       <div className="contenido">
         <Cabecera perfil={perfil} onSalir={salir} />
-        <Aviso mensaje={aviso} />
+        <Aviso mensaje={aviso && aviso.m} tipo={aviso && aviso.tipo} />
         <main className="pagina">
           {tab === 'registrar' && <FormularioReserva onAviso={avisar} />}
           {tab === 'agenda' && <Agenda perfil={perfil} onAviso={avisar} />}
