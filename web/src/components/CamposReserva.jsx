@@ -39,7 +39,7 @@ export default function CamposReserva({ d, setD, errores, textoConsentimiento, e
         <Campo id="r-sede" etiqueta="Sede" campo="sede" errores={errores}>
           <select id="r-sede" value={d.sede} onChange={set('sede')}>
             <option value="">Elige…</option>
-            <option value="Año Nuevo">Año Nuevo</option>
+            <option value="Túpac Amaru">Túpac Amaru</option>
             <option value="Santa Rosa">Santa Rosa</option>
           </select>
         </Campo>

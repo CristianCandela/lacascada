@@ -174,7 +174,7 @@ export default function Agenda({ perfil, onAviso }) {
           <label htmlFor="a-sede" className="sr">Sede</label>
           <select id="a-sede" className="filtro" value={fSede} onChange={(e) => setFSede(e.target.value)}>
             <option value="">Todas las sedes</option>
-            <option value="Año Nuevo">Año Nuevo</option>
+            <option value="Túpac Amaru">Túpac Amaru</option>
             <option value="Santa Rosa">Santa Rosa</option>
           </select>
           <label htmlFor="a-riesgo" className="chip-filtro">

@@ -1,6 +1,6 @@
 // Lógica pura (sin React ni red): validaciones, porcentajes y CSV.
 export const SERVICIOS = ['sauna', 'gimnasio'];
-export const SEDES = ['Año Nuevo', 'Santa Rosa'];
+export const SEDES = ['Túpac Amaru', 'Santa Rosa'];
 
 export function validarReserva(d, ahora = new Date()) {
   const e = {};
