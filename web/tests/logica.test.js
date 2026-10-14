@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validarReserva, calcularPorcentajes, aCSV, urlWhatsApp, mensajeRecordatorio,
-  esAltoRiesgo, hayCupo, textoCupos, reduccionRecordatorio, matrizCalor, serieDiaria } from '../src/lib/logica.js';
+  esAltoRiesgo, minutosParaRecordar, textoFalta, hayCupo, textoCupos, reduccionRecordatorio, matrizCalor, serieDiaria } from '../src/lib/logica.js';
 
 const ahora = new Date('2026-10-11T10:00:00');
 const ok = { nombre: 'Ana Pérez', dni: '70000001', telefono: '900000001', servicio: 'sauna',
@@ -109,4 +109,21 @@ test('CSV incluye segundos_registro y marca no_show solo para «no asistió»', 
   assert.match(csv[0], /segundos_registro,no_show$/);
   assert.ok(csv[1].endsWith(',cancelo,1.4,0'));
   assert.ok(csv[2].endsWith(',no_asistio,,1'));
+});
+
+test('cola de recordatorios: solo citas pendientes que empiezan en 120 min o menos y sin recordatorio ni confirmación', () => {
+  const ahora = new Date('2026-10-14T10:00:00');
+  const en = (min, extra = {}) => ({ estado_asistencia: 'pendiente', fecha_hora_cita: new Date(ahora.getTime() + min * 60000).toISOString(), ...extra });
+  assert.equal(minutosParaRecordar(en(90), ahora), 90);
+  assert.equal(minutosParaRecordar(en(120), ahora), 120);
+  assert.equal(minutosParaRecordar(en(121), ahora), null);                              // todavía falta mucho
+  assert.equal(minutosParaRecordar(en(-5), ahora), null);                               // la cita ya empezó
+  assert.equal(minutosParaRecordar(en(60, { recordatorio_enviado_en: 'x' }), ahora), null);
+  assert.equal(minutosParaRecordar(en(60, { confirmada_en: 'x' }), ahora), null);
+  assert.equal(minutosParaRecordar(en(60, { estado_asistencia: 'asistio' }), ahora), null);
+});
+test('textoFalta: minutos y horas legibles', () => {
+  assert.equal(textoFalta(45), '45 min');
+  assert.equal(textoFalta(60), '1 h');
+  assert.equal(textoFalta(95), '1 h 35 min');
 });

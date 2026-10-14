@@ -97,6 +97,25 @@ export function esAltoRiesgo({ total = 0, no_asistio = 0 } = {}) {
   return total >= MIN_CITAS_RIESGO && (no_asistio / total) * 100 >= UMBRAL_RIESGO;
 }
 
+// ---------- Cola de recordatorios (protocolo «2 horas antes») ----------
+export const VENTANA_RECORDATORIO_MIN = 120;
+
+// Minutos que faltan para la cita si recepción debe recordarla; null si no corresponde.
+// Corresponde: cita pendiente, aún sin recordatorio ni confirmación, que empieza en 120 min o menos.
+export function minutosParaRecordar(cita, ahora = new Date()) {
+  if (!cita || cita.estado_asistencia !== 'pendiente') return null;
+  if (cita.recordatorio_enviado_en || cita.confirmada_en) return null;
+  const falta = Math.round((new Date(cita.fecha_hora_cita) - ahora) / 60000);
+  return falta > 0 && falta <= VENTANA_RECORDATORIO_MIN ? falta : null;
+}
+
+export function textoFalta(min) {
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
+
 // ---------- Aforo ----------
 export function hayCupo(d) {
   return Boolean(d) && Number(d.libres) > 0;

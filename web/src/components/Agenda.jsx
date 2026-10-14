@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase, mensajeError } from '../lib/supabase';
-import { esAltoRiesgo, hoyLocal, mensajeRecordatorio, urlWhatsApp } from '../lib/logica';
+import { esAltoRiesgo, hoyLocal, mensajeRecordatorio, minutosParaRecordar, textoFalta, urlWhatsApp } from '../lib/logica';
 import Icono, { iniciales, tonoAvatar } from './Iconos';
 
 const ETIQUETAS = { asistio: 'Asistió', no_asistio: 'No asistió', cancelo: 'Canceló', pendiente: 'Pendiente' };
@@ -30,6 +30,8 @@ export default function Agenda({ perfil, onAviso }) {
   const [fSede, setFSede] = useState('');
   const [soloRiesgo, setSoloRiesgo] = useState(false);
   const [riesgo, setRiesgo] = useState({});
+  const [soloRecordar, setSoloRecordar] = useState(false);
+  const [ahora, setAhora] = useState(() => new Date());
   const admin = perfil.rol === 'administrador';
 
   const cargar = useCallback(async () => {
@@ -62,6 +64,12 @@ export default function Agenda({ perfil, onAviso }) {
   }, [dia, onAviso]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  // Reloj para la cola de recordatorios: se actualiza cada minuto.
+  useEffect(() => {
+    const t = setInterval(() => setAhora(new Date()), 60000);
+    return () => clearInterval(t);
+  }, []);
 
   async function ejecutar(btn, operacion) {
     btn.disabled = true;
@@ -118,9 +126,11 @@ export default function Agenda({ perfil, onAviso }) {
     (!fServicio || f.servicio === fServicio) &&
     (!fSede || f.sede === fSede) &&
     (!soloRiesgo || (riesgo[f.id_cliente] && riesgo[f.id_cliente].alto_riesgo)) &&
+    (!soloRecordar || minutosParaRecordar(f, ahora) !== null) &&
     (!q || (f.clientes && f.clientes.nombre.toLowerCase().includes(q))));
   const cuenta = (e) => todas.filter((f) => f.estado_asistencia === e).length;
   const nRiesgo = todas.filter((f) => f.estado_asistencia === 'pendiente' && riesgo[f.id_cliente] && riesgo[f.id_cliente].alto_riesgo).length;
+  const porRecordar = todas.filter((f) => minutosParaRecordar(f, ahora) !== null);
   const esHoy = dia === hoyLocal();
   const titulo = new Date(`${dia}T12:00:00`).toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' });
 
@@ -174,6 +184,18 @@ export default function Agenda({ perfil, onAviso }) {
           <button type="button" id="btn-agenda" className="sec" onClick={cargar}><Icono n="refrescar" tam={16} />Actualizar</button>
         </div>
 
+        {porRecordar.length > 0 && (
+          <div className="cola-recordar" role="status" data-cola>
+            <span>
+              <strong>{porRecordar.length} {porRecordar.length === 1 ? 'cita por recordar' : 'citas por recordar'}</strong>
+              {' '}(empiezan en 2 horas o menos y aún no tienen recordatorio ni confirmación).
+            </span>
+            <button type="button" className="sec chico" data-accion="ver-cola" onClick={() => setSoloRecordar(!soloRecordar)}>
+              {soloRecordar ? 'Ver todas' : 'Ver solo estas'}
+            </button>
+          </div>
+        )}
+
         <div className="tabla-wrap">
           {filas === null && <p className="vacio">Cargando…</p>}
           {filas && todas.length === 0 && (
@@ -190,6 +212,7 @@ export default function Agenda({ perfil, onAviso }) {
               <tbody>
                 {visibles.map((f) => {
                   const nombre = f.clientes ? f.clientes.nombre : '—';
+                  const falta = minutosParaRecordar(f, ahora);
                   return (
                     <tr key={f.id_cita} data-id={f.id_cita}>
                       <td data-label="Hora" className="hora">{new Date(f.fecha_hora_cita).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false })}</td>
@@ -214,11 +237,13 @@ export default function Agenda({ perfil, onAviso }) {
                         <div className="contacto">
                           <span data-contacto>
                             {f.confirmada_en ? <span className="etq asistio">Confirmó</span>
-                              : f.recordatorio_enviado_en ? <span className="etq">Recordado</span> : <span className="tenue">Sin contacto</span>}
+                              : f.recordatorio_enviado_en ? <span className="etq">Recordado</span>
+                              : falta !== null ? <span className="etq recordar" data-recordar>Recordar · faltan {textoFalta(falta)}</span>
+                              : <span className="tenue">Sin contacto</span>}
                           </span>
                           {f.estado_asistencia === 'pendiente' && (
                             <span className="contacto-acc">
-                              <button type="button" data-accion="whatsapp" className={`chico ${riesgo[f.id_cliente] && riesgo[f.id_cliente].alto_riesgo ? 'wa-destacado' : 'sec'}`} title="Enviar recordatorio por WhatsApp" aria-label="Enviar recordatorio por WhatsApp" onClick={(e) => recordar(f, e)}><Icono n="whatsapp" tam={16} /><span className="txt-wa">WhatsApp</span></button>
+                              <button type="button" data-accion="whatsapp" className={`chico ${falta !== null || (riesgo[f.id_cliente] && riesgo[f.id_cliente].alto_riesgo) ? 'wa-destacado' : 'sec'}`} title="Enviar recordatorio por WhatsApp" aria-label="Enviar recordatorio por WhatsApp" onClick={(e) => recordar(f, e)}><Icono n="whatsapp" tam={16} /><span className="txt-wa">WhatsApp</span></button>
                               {!f.confirmada_en && (
                                 <button type="button" data-accion="confirmar" className="sec chico" onClick={(e) => confirmar(f, e)}>Confirmó</button>
                               )}
