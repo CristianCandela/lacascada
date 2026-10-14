@@ -5,7 +5,7 @@ export const VACIO = {
 
 function Campo({ id, etiqueta, campo, errores, children }) {
   return (
-    <div>
+    <div className="campo">
       <label htmlFor={id}>{etiqueta}</label>
       {children}
       <p className="error" data-error={campo}>{errores[campo] || ''}</p>
@@ -49,7 +49,7 @@ export default function CamposReserva({ d, setD, errores, textoConsentimiento, e
       </div>
       <label className="check">
         <input id="r-consent" type="checkbox" checked={d.consentimiento} onChange={set('consentimiento')} />
-        <span>{textoConsentimiento}</span>
+        <span><b>Consentimiento informado.</b> {textoConsentimiento}</span>
       </label>
       <p className="error" data-error="consentimiento">{errores.consentimiento || ''}</p>
     </>

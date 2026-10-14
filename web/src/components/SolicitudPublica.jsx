@@ -42,11 +42,11 @@ export default function SolicitudPublica() {
   }
 
   return (
-    <>
+    <div className="publica-pagina">
       <Cabecera perfil={null} />
       <Aviso mensaje={aviso} />
-      <main>
-        <section className="tarjeta">
+      <main className="pagina publica">
+        <section className="tarjeta formulario">
           <h1>Solicita tu reserva</h1>
           <p className="ayuda">Sin cuenta ni contraseña. Elige servicio, sede y horario; el personal te confirmará por WhatsApp.</p>
           <form onSubmit={enviar} noValidate>
@@ -58,14 +58,16 @@ export default function SolicitudPublica() {
                 value={trampa} onChange={(e) => setTrampa(e.target.value)} />
             </div>
             <p id="r-resultado" className="ok" role="status">{ok}</p>
-            <button type="submit" id="btn-reserva" disabled={enviando}>Enviar solicitud</button>
+            <div className="form-pie">
+              <a className="enlace-suave" href="#/">Soy parte del personal</a>
+              <button type="submit" id="btn-reserva" disabled={enviando}>{enviando ? 'Enviando…' : 'Enviar solicitud'}</button>
+            </div>
           </form>
-          <p className="ayuda"><a href="#/">Soy parte del personal</a></p>
         </section>
       </main>
       <footer className="pie">
         MVP académico UTP · Innovación y Transformación Digital · Datos ficticios para la demostración.
       </footer>
-    </>
+    </div>
   );
 }

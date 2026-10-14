@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase, mensajeError } from '../lib/supabase';
 import { validarReserva } from '../lib/logica';
 import CamposReserva, { VACIO } from './CamposReserva';
+import Icono from './Iconos';
 
 async function obtenerOCrearCliente(d) {
   const f = await supabase.from('clientes').select('id_cliente').eq('dni', d.dni).maybeSingle();
@@ -46,14 +47,28 @@ export default function FormularioReserva({ onAviso }) {
   }
 
   return (
-    <div className="tarjeta">
-      <h2>Registrar reserva</h2>
-      <form onSubmit={guardar} noValidate>
-        <CamposReserva d={d} setD={setD} errores={errores}
-          textoConsentimiento="El cliente autoriza el tratamiento de sus datos personales para gestionar su reserva (Ley 29733)." />
-        <p id="r-resultado" className="ok" role="status">{ok}</p>
-        <button type="submit" id="btn-reserva" disabled={enviando}>Guardar reserva</button>
-      </form>
-    </div>
+    <>
+      <div className="pag-cab">
+        <div>
+          <h1>Registrar reserva</h1>
+          <p className="ayuda">Ingresa los datos del cliente para agendar su turno en sauna o gimnasio.</p>
+        </div>
+      </div>
+      <div className="tarjeta formulario">
+        <form onSubmit={guardar} noValidate>
+          <CamposReserva d={d} setD={setD} errores={errores}
+            textoConsentimiento="El cliente autoriza el tratamiento de sus datos personales para gestionar su reserva (Ley 29733)." />
+          <p id="r-resultado" className="ok" role="status">{ok}</p>
+          <div className="form-pie">
+            <button type="button" className="sec" onClick={() => { setD(VACIO); setErrores({}); setOk(''); }}>
+              <Icono n="refrescar" tam={16} />Limpiar formulario
+            </button>
+            <button type="submit" id="btn-reserva" disabled={enviando}>
+              <Icono n="check" tam={16} />{enviando ? 'Guardando…' : 'Guardar reserva'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </>
   );
 }

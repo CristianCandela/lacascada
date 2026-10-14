@@ -1,31 +1,42 @@
 import { useEffect, useState } from 'react';
 import { supabase, mensajeError } from '../lib/supabase';
 import { aCSV, calcularPorcentajes, pctNoShow } from '../lib/logica';
+import Icono from './Iconos';
 
-function Kpi({ valor, texto, clase }) {
+function Kpi({ valor, texto, titulo, icono, tono, clase, children }) {
   return (
-    <div className="kpi">
+    <div className={`kpi ${tono || ''}`}>
+      <div className="kpi-cab"><span className="eti">{titulo}</span><span className="resumen-ico"><Icono n={icono} tam={20} /></span></div>
       <div className={`num ${clase || ''}`}>{valor}%</div>
-      <div className="eti">{texto}</div>
+      <div className="det">{texto}</div>
+      {children}
     </div>
   );
 }
 
-function TablaDesglose({ titulo, columna, filas }) {
+function Desglose({ titulo, filas }) {
   return (
-    <>
-      <h3>{titulo}</h3>
-      <div className="tabla-wrap">
-        <table>
-          <thead><tr><th>{columna}</th><th>Asistió</th><th>No asistió</th><th>% no-show</th></tr></thead>
-          <tbody>
-            {(filas || []).map((x) => (
-              <tr key={x.clave}><td>{x.clave}</td><td>{x.asistio}</td><td>{x.no_asistio}</td><td>{pctNoShow(x)}%</td></tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
+    <div className="tarjeta desglose">
+      <h2>{titulo}</h2>
+      <p className="leyenda"><span className="punto verde" />Asistió <span className="punto naranja" />No asistió</p>
+      {(filas || []).length === 0 && <p className="vacio">Aún no hay asistencias registradas.</p>}
+      {(filas || []).map((x) => {
+        const tot = (x.asistio || 0) + (x.no_asistio || 0);
+        const pa = tot ? (x.asistio / tot) * 100 : 0;
+        return (
+          <div className="barra-fila" key={x.clave}>
+            <div className="barra-fila-cab">
+              <b>{x.clave.charAt(0).toUpperCase() + x.clave.slice(1)}</b>
+              <span>{pctNoShow(x)}% no-show · {x.no_asistio} de {tot}</span>
+            </div>
+            <div className="barra-apilada" role="img" aria-label={`${x.asistio} asistieron y ${x.no_asistio} no asistieron`}>
+              <span className="tramo verde" style={{ width: `${pa}%` }} />
+              <span className="tramo naranja" style={{ width: tot ? `${100 - pa}%` : '0%' }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -64,10 +75,12 @@ export default function PanelNoShows({ perfil, onAviso }) {
 
   if (!esAdmin) {
     return (
-      <div className="tarjeta">
-        <h2>Panel de no-shows</h2>
-        <p className="error" role="alert">Acceso denegado: este panel es solo para el administrador.</p>
-      </div>
+      <>
+        <div className="pag-cab"><div><h1>Panel de no-shows</h1></div></div>
+        <div className="tarjeta">
+          <p className="error-grande" role="alert"><Icono n="escudo" tam={22} />Acceso denegado: este panel es solo para el administrador.</p>
+        </div>
+      </>
     );
   }
 
@@ -75,24 +88,41 @@ export default function PanelNoShows({ perfil, onAviso }) {
   const metaOk = p && p.pct_registro >= 90;
 
   return (
-    <div className="tarjeta">
-      <h2>Panel de no-shows</h2>
-      {!datos && <p className="ayuda">Cargando…</p>}
+    <>
+      <div className="pag-cab">
+        <div>
+          <h1>Panel de no-shows</h1>
+          <p className="ayuda">Inasistencias sin aviso, por servicio y por sede.</p>
+        </div>
+        {datos && (
+          <button type="button" id="btn-csv" className="sec" onClick={descargar}>
+            <Icono n="descargar" tam={16} />Descargar CSV (sin datos personales)
+          </button>
+        )}
+      </div>
+      {!datos && <p className="vacio">Cargando…</p>}
       {datos && (
         <>
           <div className="kpis">
-            <Kpi valor={p.pct_no_show} texto={`de no-shows (${datos.no_asistio} de ${p.registradas} citas registradas)`} />
-            <Kpi valor={p.pct_asistencia} texto="de asistencia" />
-            <Kpi valor={p.pct_registro} clase={metaOk ? 'meta-ok' : 'meta-mal'}
-              texto={`de citas vencidas con asistencia registrada (meta ≥ 90%: ${metaOk ? 'cumplida' : 'no cumplida'})`} />
+            <Kpi titulo="Tasa de no-shows" icono="x" tono="naranja" valor={p.pct_no_show}
+              texto={`${datos.no_asistio} de ${p.registradas} citas registradas`} />
+            <Kpi titulo="Asistencia" icono="check" tono="verde" valor={p.pct_asistencia}
+              texto={`${datos.asistio} de ${p.registradas} citas registradas`} />
+            <Kpi titulo="Citas vencidas con asistencia registrada" icono="agenda" tono="azul" valor={p.pct_registro}
+              clase={metaOk ? 'meta-ok' : 'meta-mal'}
+              texto={`Meta ≥ 90%: ${metaOk ? 'cumplida' : 'no cumplida'}`}>
+              <div className="progreso" role="img" aria-label={`${p.pct_registro}% de la meta del 90%`}>
+                <span className={metaOk ? 'ok' : 'falta'} style={{ width: `${Math.min(p.pct_registro, 100)}%` }} />
+                <i style={{ left: '90%' }} title="Meta 90%" />
+              </div>
+            </Kpi>
           </div>
-          <TablaDesglose titulo="Por servicio" columna="servicio" filas={datos.por_servicio} />
-          <TablaDesglose titulo="Por sede" columna="sede" filas={datos.por_sede} />
-          <button type="button" id="btn-csv" className="sec" onClick={descargar}>
-            Descargar CSV (sin datos personales)
-          </button>
+          <div className="desgloses">
+            <Desglose titulo="Por servicio" filas={datos.por_servicio} />
+            <Desglose titulo="Por sede" filas={datos.por_sede} />
+          </div>
         </>
       )}
-    </div>
+    </>
   );
 }

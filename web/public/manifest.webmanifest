@@ -4,8 +4,8 @@
   "description": "Reservas y control de asistencia (MVP académico con datos ficticios)",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f4f6f8",
-  "theme_color": "#0b6e8a",
+  "background_color": "#F4F8FB",
+  "theme_color": "#29A9E1",
   "lang": "es",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
