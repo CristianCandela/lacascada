@@ -30,7 +30,6 @@ funciones SQL y triggers de la base.
    2. `supabase/migrations/20261013000000_whatsapp_y_solicitudes.sql`
    3. `supabase/migrations/20261014000000_riesgo_aforo_metricas.sql`
 
-   No ejecutes `20261013000000_solicitudes_publicas.sql`: la reemplaza la migración 2.
 3. **Authentication → Users**: crea 2 usuarios (Auto Confirm): recepción y administrador.
 4. Edita los correos de `supabase/seed/01_usuarios.sql` y ejecútalo (deben salir 2 filas).
 5. Ejecuta `supabase/seed/02_datos_ficticios.sql` (30 clientes y unas 126 citas ficticias).
