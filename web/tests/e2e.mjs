@@ -126,6 +126,61 @@ function manana(h) {
   chk('14. Marcar "No asistió" cambia el % de no-shows (' + antes + ' → ' + despues + ')', antes !== despues && parseFloat(despues) > parseFloat(antes));
   await p.screenshot({ path: carpeta + '/07_panel_actualizado.png' });
 
+  // --- Nuevas funciones: WhatsApp, confirmación, solicitud pública, aprobación ---
+  p = await nuevaPagina();
+  await p.context().route('https://wa.me/**', (r) => r.fulfill({ contentType: 'text/html', body: 'ok' }));
+  await login(p, 'recepcion@demo.test', 'demo123');
+  await p.waitForSelector('.tabs');
+  await p.click('[data-tab="agenda"]');
+  await p.waitForSelector('.tabla-wrap table');
+  const [popup] = await Promise.all([
+    p.context().waitForEvent('page'),
+    p.locator('tr[data-id="c2"] [data-accion="whatsapp"]').click()
+  ]);
+  await popup.waitForURL(/wa\.me\/51900000001/);
+  chk('16. Botón WhatsApp abre wa.me con el teléfono del cliente (+51)', popup.url().includes('wa.me/51900000001') && popup.url().includes('text='));
+  await popup.close();
+  await p.waitForFunction(() => !!window.__mock.db.citas.find(c => c.id_cita === 'c2').recordatorio_enviado_en);
+  chk('17. Se registra recordatorio_enviado_en', await p.evaluate(() => !!window.__mock.db.citas.find(c => c.id_cita === 'c2').recordatorio_enviado_en));
+  await p.locator('tr[data-id="c2"] [data-accion="confirmar"]').click();
+  await p.waitForFunction(() => !!window.__mock.db.citas.find(c => c.id_cita === 'c2').confirmada_en);
+  chk('18. Marcar "Confirmó" registra confirmada_en y lo muestra', (await p.locator('tr[data-id="c2"] [data-contacto]').textContent()).includes('Confirmó'));
+  await p.screenshot({ path: carpeta + '/09_agenda_whatsapp.png' });
+
+  // Solicitud pública (sin sesión)
+  const pub = await nuevaPagina();
+  await pub.goto(url + '#/reservar');
+  await pub.waitForSelector('#btn-reserva');
+  chk('19. Página pública abre sin iniciar sesión', (await pub.textContent('h1')).includes('Solicita tu reserva'));
+  await pub.click('#btn-reserva');
+  chk('20. Solicitud vacía muestra errores y no guarda',
+    (await pub.textContent('[data-error="nombre"]')).length > 0 && (await pub.evaluate(() => window.__mock.db.solicitudes.length)) === 1);
+  await llenar(pub, { nombre: 'Marta Ficticia', dni: '70000077', telefono: '900000077', consent: false });
+  await pub.uncheck('#r-consent'); await pub.click('#btn-reserva');
+  chk('21. Solicitud sin consentimiento rechazada', (await pub.textContent('[data-error="consentimiento"]')).includes('29733'));
+  await pub.check('#r-consent'); await pub.click('#btn-reserva');
+  await pub.waitForFunction(() => document.getElementById('r-resultado').textContent.includes('Solicitud enviada'));
+  chk('22. Solicitud válida se guarda como pendiente', await pub.evaluate(() => window.__mock.db.solicitudes.length === 2 && window.__mock.db.solicitudes[1].estado === 'pendiente'));
+  await pub.screenshot({ path: carpeta + '/10_solicitud_publica.png' });
+  await llenar(pub, { nombre: 'Bot Spam', dni: '70000078', telefono: '900000078' });
+  await pub.fill('#r-empresa', 'soy un bot');
+  await pub.click('#btn-reserva');
+  await pub.waitForTimeout(300);
+  chk('23. Señuelo anti-bot: no se guarda la solicitud', await pub.evaluate(() => window.__mock.db.solicitudes.length === 2));
+
+  // Aprobación por el personal
+  await p.click('[data-tab="solicitudes"]');
+  await p.waitForSelector('tr[data-id="s1"]');
+  await p.locator('tr[data-id="s1"] [data-accion="aprobar"]').click();
+  await p.waitForFunction(() => window.__mock.db.solicitudes.find(s => s.id_solicitud === 's1').estado === 'aprobada');
+  await p.click('[data-tab="agenda"]');
+  const dm = new Date(); dm.setDate(dm.getDate() + 1);
+  const pad = (n) => String(n).padStart(2, '0');
+  await p.fill('#a-fecha', `${dm.getFullYear()}-${pad(dm.getMonth() + 1)}-${pad(dm.getDate())}`);
+  await p.waitForSelector('.tabla-wrap tbody tr');
+  chk('24. Aprobar solicitud crea la cita en la agenda', (await p.textContent('.tabla-wrap tbody')).includes('Cliente Demo 31'));
+  await p.screenshot({ path: carpeta + '/11_solicitud_aprobada.png' });
+
   // Móvil
   const m = await browser.newContext({ viewport: { width: 375, height: 760 } });
   const pm = await m.newPage();

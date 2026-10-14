@@ -4,7 +4,7 @@ const USERS = {
   'recepcion@demo.test': { id: 'u1', pass: 'demo123', perfil: { nombre: 'Recepcionista de prueba', rol: 'recepcionista' } },
   'admin@demo.test': { id: 'u2', pass: 'demo123', perfil: { nombre: 'Administrador de prueba', rol: 'administrador' } }
 };
-const db = { perfiles: [], clientes: [], citas: [] };
+const db = { perfiles: [], clientes: [], citas: [], solicitudes: [] };
 Object.keys(USERS).forEach((e) => db.perfiles.push({ id: USERS[e].id, ...USERS[e].perfil }));
 let sesion = null; let redCaida = false; let seq = 1;
 
@@ -14,6 +14,9 @@ db.citas.push(
   { id_cita: 'c1', id_cliente: 'k1', servicio: 'sauna', sede: 'Año Nuevo', fecha_hora_cita: hoy(1), fecha_hora_registro: hoy(0), estado_asistencia: 'asistio' },
   { id_cita: 'c2', id_cliente: 'k1', servicio: 'gimnasio', sede: 'Santa Rosa', fecha_hora_cita: hoy(2), fecha_hora_registro: hoy(0), estado_asistencia: 'pendiente' }
 );
+const manana = (h) => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(h, 0, 0, 0); return d.toISOString(); };
+db.solicitudes.push({ id_solicitud: 's1', nombre: 'Cliente Demo 31', dni: '70000031', telefono: '900000031',
+  servicio: 'sauna', sede: 'Año Nuevo', fecha_hora_preferida: manana(18), estado: 'pendiente' });
 if (typeof window !== 'undefined') window.__mock = { db, caerRed: (v) => { redCaida = v; } };
 
 function builder(tabla) {
@@ -38,6 +41,7 @@ function builder(tabla) {
       if (q.op === 'insert') {
         const nuevo = { ...q.payload };
         if (tabla === 'clientes') nuevo.id_cliente = `k${++seq}`;
+        if (tabla === 'solicitudes') { nuevo.id_solicitud = `s${++seq}`; nuevo.estado = 'pendiente'; }
         if (tabla === 'citas') { nuevo.id_cita = `c${++seq}`; nuevo.fecha_hora_registro = new Date().toISOString(); }
         db[tabla].push(nuevo);
         return resolve(q.single ? { data: nuevo, error: null } : { data: null, error: null });
@@ -68,8 +72,18 @@ export function createClient() {
       signOut: () => { sesion = null; return Promise.resolve({ error: null }); }
     },
     from: builder,
-    rpc: () => {
+    rpc: (nombre, args) => {
       if (redCaida) return Promise.resolve({ data: null, error: new Error('Failed to fetch') });
+      if (nombre === 'aprobar_solicitud') {
+        const sol = db.solicitudes.find((x) => x.id_solicitud === args.p_id && x.estado === 'pendiente');
+        if (!sol) return Promise.resolve({ data: null, error: new Error('La solicitud no existe o ya fue atendida') });
+        let cli = db.clientes.find((c) => c.dni === sol.dni);
+        if (!cli) { cli = { id_cliente: `k${++seq}`, nombre: sol.nombre, dni: sol.dni, telefono: sol.telefono }; db.clientes.push(cli); }
+        const cita = { id_cita: `c${++seq}`, id_cliente: cli.id_cliente, servicio: sol.servicio, sede: sol.sede,
+          fecha_hora_cita: sol.fecha_hora_preferida, fecha_hora_registro: new Date().toISOString(), estado_asistencia: 'pendiente' };
+        db.citas.push(cita); sol.estado = 'aprobada';
+        return Promise.resolve({ data: cita.id_cita, error: null });
+      }
       const c = db.citas; const ahora = new Date().toISOString();
       const venc = c.filter((x) => x.fecha_hora_cita <= ahora);
       const agr = (campo) => {

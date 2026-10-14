@@ -30,6 +30,7 @@ export default function Login({ onEntrar, error }) {
         <p id="login-error" className="error" role="alert">{local || error}</p>
         <button type="submit" id="btn-login" disabled={enviando}>Ingresar</button>
       </form>
+      <p className="ayuda"><a href="#/reservar">¿Eres cliente? Solicita tu reserva aquí</a></p>
     </section>
   );
 }

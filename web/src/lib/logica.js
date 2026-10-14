@@ -56,11 +56,29 @@ export function pctNoShow(x) {
 // CSV sin datos personales (contrato de datos para APF3).
 export function aCSV(filas = []) {
   const cab = ['id_cita', 'id_cliente', 'servicio', 'sede', 'fecha_hora_cita',
-    'fecha_hora_registro', 'estado_asistencia', 'no_show'];
+    'fecha_hora_registro', 'recordatorio_enviado_en', 'confirmada_en', 'estado_asistencia', 'no_show'];
   const out = [cab.join(',')];
   filas.forEach((f) => out.push([f.id_cita, f.id_cliente, f.servicio, f.sede, f.fecha_hora_cita,
-    f.fecha_hora_registro, f.estado_asistencia, f.estado_asistencia === 'no_asistio' ? 1 : 0].join(',')));
+    f.fecha_hora_registro, f.recordatorio_enviado_en || '', f.confirmada_en || '',
+    f.estado_asistencia, f.estado_asistencia === 'no_asistio' ? 1 : 0].join(',')));
   return out.join('\n');
+}
+
+// Mensaje de recordatorio para WhatsApp (sin API: enlace "click to chat" de wa.me).
+export function mensajeRecordatorio(cita) {
+  const f = new Date(cita.fecha_hora_cita);
+  const fecha = f.toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' });
+  const hora = f.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+  const nombre = (cita.clientes && cita.clientes.nombre) || '';
+  return `Hola ${nombre}, te recordamos tu cita de ${cita.servicio} en La Cascada (sede ${cita.sede}) ` +
+    `el ${fecha} a las ${hora}. Responde SÍ para confirmar o avísanos si no podrás asistir.`;
+}
+
+// Teléfono peruano de 9 dígitos -> enlace wa.me con código de país 51.
+export function urlWhatsApp(telefono, texto) {
+  const tel = String(telefono || '').replace(/\D/g, '');
+  if (!/^[0-9]{9}$/.test(tel)) return null;
+  return `https://wa.me/51${tel}?text=${encodeURIComponent(texto)}`;
 }
 
 export function hoyLocal() {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validarReserva, calcularPorcentajes, aCSV } from '../src/lib/logica.js';
+import { validarReserva, calcularPorcentajes, aCSV, urlWhatsApp, mensajeRecordatorio } from '../src/lib/logica.js';
 
 const ahora = new Date('2026-10-11T10:00:00');
 const ok = { nombre: 'Ana Pérez', dni: '70000001', telefono: '900000001', servicio: 'sauna',
@@ -34,4 +34,19 @@ test('CSV sin datos personales', () => {
     fecha_hora_cita: 'f1', fecha_hora_registro: 'f0', estado_asistencia: 'no_asistio' }]);
   assert.ok(csv.split('\n')[1].endsWith(',1'));
   assert.ok(!/dni|telefono|nombre/.test(csv));
+  assert.match(csv.split('\n')[0], /recordatorio_enviado_en,confirmada_en/);
+});
+test('urlWhatsApp: agrega 51 y codifica el mensaje', () => {
+  const u = urlWhatsApp('900000001', 'Hola, ¿vienes?');
+  assert.ok(u.startsWith('https://wa.me/51900000001?text='));
+  assert.ok(u.includes(encodeURIComponent('¿vienes?')));
+});
+test('urlWhatsApp: teléfono inválido devuelve null', () => {
+  assert.equal(urlWhatsApp('123', 'x'), null);
+  assert.equal(urlWhatsApp('', 'x'), null);
+});
+test('mensajeRecordatorio incluye cliente, servicio y sede', () => {
+  const m = mensajeRecordatorio({ servicio: 'sauna', sede: 'Año Nuevo', fecha_hora_cita: '2026-10-14T18:00:00',
+    clientes: { nombre: 'Ana' } });
+  assert.match(m, /Ana/); assert.match(m, /sauna/); assert.match(m, /Año Nuevo/);
 });

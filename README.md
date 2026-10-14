@@ -26,3 +26,17 @@ Componentes: `Login`, `Cabecera`, `FormularioReserva`, `Agenda`, `PanelNoShows`,
 Hook: `useSesion`. Lógica pura: `src/lib/logica.js`.
 
 Despliegue en Vercel: importar el repositorio, *Root Directory* = `web`, variables `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`.
+
+## Paso 3 — Mejoras de cumplimiento (APF1 → APF2)
+Base de datos (Supabase > SQL Editor):
+1. Ejecuta `supabase/migrations/20261013000000_whatsapp_y_solicitudes.sql` (una vez).
+2. Opcional: `supabase/seed/03_solicitudes_demo.sql` (2 solicitudes ficticias para la demo).
+
+Novedades:
+- **Recordatorio por WhatsApp** (sin API de pago): botón en la Agenda que abre `wa.me` con el mensaje escrito; guarda `recordatorio_enviado_en`.
+- **Confirmación**: botón «Confirmó» guarda `confirmada_en` (variable «tiempo de confirmación» de APF1 para el modelo de APF3).
+- **Solicitud pública sin cuenta**: `https://TU-URL/#/reservar`. Escribe en `solicitudes` (RLS: el público solo inserta). El personal aprueba en la pestaña «Solicitudes» (función atómica `aprobar_solicitud`).
+- **PWA instalable**: `manifest.webmanifest`, íconos y `sw.js` (red primero; sin uso sin conexión para los datos).
+- CSV de exportación con `recordatorio_enviado_en` y `confirmada_en`.
+
+Pruebas: `npm test` (13 de lógica) y `npm run test:e2e` (24 de interfaz con Supabase simulado).

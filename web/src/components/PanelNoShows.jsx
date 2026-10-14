@@ -51,7 +51,7 @@ export default function PanelNoShows({ perfil, onAviso }) {
   async function descargar() {
     try {
       const r = await supabase.from('citas')
-        .select('id_cita, id_cliente, servicio, sede, fecha_hora_cita, fecha_hora_registro, estado_asistencia')
+        .select('id_cita, id_cliente, servicio, sede, fecha_hora_cita, fecha_hora_registro, recordatorio_enviado_en, confirmada_en, estado_asistencia')
         .order('fecha_hora_cita');
       if (r.error) throw r.error;
       const blob = new Blob([aCSV(r.data || [])], { type: 'text/csv;charset=utf-8' });

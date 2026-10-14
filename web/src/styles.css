@@ -64,3 +64,6 @@ th { color: var(--suave); font-weight: 600; }
 .pie { text-align: center; color: var(--suave); font-size: .8rem; padding: 16px; }
 [hidden] { display: none !important; }
 @media (max-width: 520px) { main { padding: 10px; } .tarjeta { padding: 12px; } }
+
+.trampa { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+a { color: var(--primario); }
