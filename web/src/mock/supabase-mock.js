@@ -1,5 +1,8 @@
 // Simulación mínima de supabase-js SOLO para pruebas automáticas (vite --mode mock).
 // No se usa en desarrollo ni en producción.
+// Cada rol aporta su parte en src/features/<rol>/mock.js (usuarios, tablas y funciones rpc).
+import { MOCKS } from '../features/mocks';
+
 const USERS = {
   'recepcion@demo.test': { id: 'u1', pass: 'demo123', perfil: { nombre: 'Recepcionista de prueba', rol: 'recepcionista' } },
   'admin@demo.test': { id: 'u2', pass: 'demo123', perfil: { nombre: 'Administrador de prueba', rol: 'administrador' } }
@@ -21,6 +24,7 @@ function validarCita(n, excepto) {
     return new Error('Aforo máximo completado para esta franja horaria');
   return null;
 }
+MOCKS.forEach((x) => Object.assign(USERS, x.usuarios || {}));
 Object.keys(USERS).forEach((e) => db.perfiles.push({ id: USERS[e].id, ...USERS[e].perfil }));
 let sesion = null; let redCaida = false; let seq = 1;
 
@@ -33,6 +37,8 @@ db.citas.push(
 const manana = (h) => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(h, 0, 0, 0); return d.toISOString(); };
 db.solicitudes.push({ id_solicitud: 's1', nombre: 'Cliente Demo 31', dni: '70000031', telefono: '900000031',
   servicio: 'sauna', sede: 'Año Nuevo', fecha_hora_preferida: manana(18), estado: 'pendiente' });
+const ctxMock = { db, usuario: () => sesion && db.perfiles.find((p) => p.id === sesion.user.id), nuevoId: (p) => `${p}${++seq}`, registrar };
+MOCKS.forEach((x) => x.iniciar && x.iniciar(db, ctxMock));
 if (typeof window !== 'undefined') window.__mock = { db, caerRed: (v) => { redCaida = v; } };
 
 function builder(tabla) {
@@ -94,6 +100,8 @@ export function createClient() {
     from: builder,
     rpc: (nombre, args) => {
       if (redCaida) return Promise.resolve({ data: null, error: new Error('Failed to fetch') });
+      const ext = MOCKS.find((x) => x.rpc && x.rpc[nombre]);
+      if (ext) return Promise.resolve(ext.rpc[nombre](args, ctxMock));
       if (nombre === 'aprobar_solicitud') {
         const sol = db.solicitudes.find((x) => x.id_solicitud === args.p_id && x.estado === 'pendiente');
         if (!sol) return Promise.resolve({ data: null, error: new Error('La solicitud no existe o ya fue atendida') });

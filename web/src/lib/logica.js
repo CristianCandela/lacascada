@@ -179,3 +179,54 @@ export function serieDiaria(filas = [], n = 14, hoy = new Date()) {
   }
   return out;
 }
+
+// ---------- Trazabilidad (bitácora) ----------
+export const ACCIONES_BITACORA = {
+  crear: 'Creó cita',
+  marcar: 'Marcó asistencia',
+  reabrir: 'Corrigió a pendiente',
+  recordar: 'Envió recordatorio',
+  confirmar: 'Registró confirmación',
+  editar: 'Editó cita',
+  eliminar: 'Eliminó cita',
+  solicitar: 'Envió solicitud',
+  aprobar: 'Aprobó solicitud',
+  rechazar: 'Rechazó solicitud'
+};
+
+const NOMBRES_ESTADO = { pendiente: 'Pendiente', asistio: 'Asistió', no_asistio: 'No asistió', cancelo: 'Canceló' };
+const NOMBRES_SERVICIO = { sauna: 'Sauna', gimnasio: 'Gimnasio' };
+
+export function textoAccionBitacora(accion) {
+  return ACCIONES_BITACORA[accion] || accion;
+}
+
+function cuando(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('es-PE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+// Texto corto y sin datos personales para la columna «Detalle».
+export function detalleBitacora(ev = {}) {
+  const d = ev.detalle || {};
+  switch (ev.accion) {
+    case 'marcar':
+    case 'reabrir':
+      return `${NOMBRES_ESTADO[d.antes] || d.antes} → ${NOMBRES_ESTADO[d.despues] || d.despues}`;
+    case 'recordar':
+      return 'Recordatorio por WhatsApp';
+    case 'confirmar':
+      return 'El cliente confirmó su asistencia';
+    case 'crear':
+    case 'eliminar':
+      return [NOMBRES_SERVICIO[d.servicio] || d.servicio, d.sede, cuando(d.fecha_hora_cita)].filter(Boolean).join(' · ');
+    case 'solicitar':
+    case 'aprobar':
+    case 'rechazar':
+      return [NOMBRES_SERVICIO[d.servicio] || d.servicio, d.sede, cuando(d.fecha_hora_preferida)].filter(Boolean).join(' · ');
+    case 'editar':
+      return 'Cambió servicio, sede u hora';
+    default:
+      return '';
+  }
+}

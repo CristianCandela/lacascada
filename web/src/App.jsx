@@ -5,28 +5,22 @@ import Aviso from './components/Aviso';
 import Icono, { Logo } from './components/Iconos';
 import Cabecera from './components/Cabecera';
 import Login from './components/Login';
-import FormularioReserva from './components/FormularioReserva';
-import Agenda from './components/Agenda';
-import PanelNoShows from './components/PanelNoShows';
-import Solicitudes from './components/Solicitudes';
-import SolicitudPublica from './components/SolicitudPublica';
-
-const TABS = [
-  ['registrar', 'Registrar reserva', 'mas'],
-  ['agenda', 'Agenda', 'agenda'],
-  ['solicitudes', 'Solicitudes', 'bandeja'],
-  ['panel', 'Panel de no-shows', 'grafico']
-];
+import { modulosDeRol, RUTAS_PUBLICAS } from './features/modulos';
 
 function Aplicacion() {
   const { cargando, perfil, error, entrar, salir } = useSesion();
-  const [tab, setTab] = useState('registrar');
+  const [tab, setTab] = useState(null);
   const [aviso, setAviso] = useState(null);
   const avisar = useCallback((m, tipo = 'error') => setAviso(m ? { m, tipo } : null), []);
+
   const cambiar = (t) => { setAviso(null); setTab(t); };
 
   if (cargando) return <p className="cargando-pagina">Cargando…</p>;
-  if (!perfil) return <Login onEntrar={entrar} error={error} />;  
+  if (!perfil) return <Login onEntrar={entrar} error={error} />;
+
+  // El menú sale del registro de módulos (features/): cada rol ve solo sus pantallas.
+  const visibles = modulosDeRol(perfil.rol);
+  const activo = visibles.find((m) => m.id === tab) || visibles[0];
 
   return (
     <div className="app">
@@ -36,11 +30,11 @@ function Aplicacion() {
           <span className="marca-texto"><b>Cascada Gym</b><small>Control de reservas</small></span>
         </div>
         <nav className="tabs" role="tablist" aria-label="Secciones">
-          {TABS.map(([id, texto, icono]) => (
-            <button key={id} type="button" role="tab" data-tab={id} aria-selected={tab === id}
-              className={tab === id ? 'activa' : ''} onClick={() => cambiar(id)}>
-              <Icono n={icono} tam={20} /><span>{texto}</span>
-              {id === 'panel' && <em className="insignia">Admin</em>}
+          {visibles.map((m) => (
+            <button key={m.id} type="button" role="tab" data-tab={m.id} aria-selected={activo === m}
+              className={activo === m ? 'activa' : ''} onClick={() => cambiar(m.id)}>
+              <Icono n={m.icono} tam={20} /><span>{m.texto}</span>
+              {m.admin && <em className="insignia">Admin</em>}
             </button>
           ))}
         </nav>
@@ -50,10 +44,9 @@ function Aplicacion() {
         <Cabecera perfil={perfil} onSalir={salir} />
         <Aviso mensaje={aviso && aviso.m} tipo={aviso && aviso.tipo} />
         <main className="pagina">
-          {tab === 'registrar' && <FormularioReserva onAviso={avisar} />}
-          {tab === 'agenda' && <Agenda perfil={perfil} onAviso={avisar} />}
-          {tab === 'solicitudes' && <Solicitudes onAviso={avisar} />}
-          {tab === 'panel' && <PanelNoShows perfil={perfil} onAviso={avisar} />}
+          {activo
+            ? <activo.Componente perfil={perfil} onAviso={avisar} />
+            : <p className="vacio">Tu rol aún no tiene pantallas habilitadas.</p>}
         </main>
       </div>
     </div>
@@ -83,6 +76,7 @@ export default function App() {
       </main>
     );
   }
-  if (ruta === '#/reservar') return <SolicitudPublica />;
+  const Publica = RUTAS_PUBLICAS[ruta];
+  if (Publica) return <Publica />;
   return <Aplicacion />;
 }

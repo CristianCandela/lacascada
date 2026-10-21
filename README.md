@@ -254,3 +254,7 @@ El MVP **no envía** mensajes por sí solo: señala a recepción a quién record
 - Las capacidades de `aforos` (sauna 6 y 4; gimnasio 30 y 20) son valores de ejemplo: ajústalas a los reales.
 - `segundos_registro` mide del clic al guardado, no el tiempo humano de la tarea.
 - El horario del formulario (06:00 a 22:00) es un supuesto a validar con la empresa.
+
+## Trabajo en equipo (MVP v2)
+Guía de ramas, carpetas por rol y revisión: `CONTRIBUTING.md`. Tareas por persona: `docs/ASIGNACIONES.md`. Contrato de datos: `docs/CONTRATO_DATOS.md`.
+Desarrollo sin Supabase: `cd web && npm run dev:mock`.

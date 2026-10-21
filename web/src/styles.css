@@ -310,3 +310,9 @@ table.calor { width: 100%; min-width: 420px; border-collapse: separate; border-s
   border: 1px solid #F7D98B; background: #FFFBEB; border-radius: var(--radio); color: #92400E; font-size: .92rem; }
 
   .aviso.ok { background: #ECFDF3; color: #166534; border-color: #BBF7D0; }
+
+  /*Bitacora*/
+  
+.etq.acc-marcar, .etq.acc-aprobar { background: #DCFCE7; color: #166534; }
+.etq.acc-eliminar, .etq.acc-rechazar { background: #FEE2E2; color: #991B1B; }
+.etq.acc-reabrir, .etq.acc-editar { background: #FEF3C7; color: #92400E; }

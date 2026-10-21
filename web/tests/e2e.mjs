@@ -4,7 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 const require = createRequire(import.meta.url);
 let chromium;
 try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require('/opt/npm-tools/node_modules/playwright')); }
@@ -302,6 +302,13 @@ function manana(h) {
   await pm.waitForSelector('.tabs');
   chk('15. Móvil 375px sin scroll horizontal', await pm.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
   await pm.screenshot({ path: carpeta + '/08_movil.png' });
+
+  // Pruebas de interfaz por rol: cada archivo de tests/e2e/ exporta `correr(ctx)`.
+  const carpetaRoles = path.join(aqui, 'e2e');
+  for (const f of fs.readdirSync(carpetaRoles).filter((n) => n.endsWith('.mjs')).sort()) {
+    const { correr } = await import(pathToFileURL(path.join(carpetaRoles, f)).href);
+    await correr({ browser, url, login, nuevaPagina, chk, carpeta });
+  }
 
   await browser.close(); server.close();
   const fallos = resultados.filter(r => !r[1]);
