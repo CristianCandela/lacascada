@@ -31,6 +31,10 @@ export default function Solicitudes({ onAviso }) {
         : await supabase.from('solicitudes').update({ estado: 'rechazada' }).eq('id_solicitud', id);
       if (r.error) throw r.error;
       await cargar();
+      if (tipo === 'aprobar' && fila) {
+        const cuando = new Date(fila.fecha_hora_preferida).toLocaleString('es-PE', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false });
+        onAviso(`Cita creada para ${fila.nombre}: ${cuando}. Búscala en Agenda, en ese día.`, 'ok');
+      }
     } catch (e) {
       onAviso(mensajeError(e));
       btn.disabled = false;
@@ -71,7 +75,7 @@ export default function Solicitudes({ onAviso }) {
                     <td data-label="Sede">{f.sede}</td>
                     <td data-label="Fecha preferida">{new Date(f.fecha_hora_preferida).toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</td>
                     <td data-label="Acción" className="acciones">
-                      <button type="button" data-accion="aprobar" className="ok-btn chico" onClick={(e) => resolver(f.id_solicitud, 'aprobar', e)}><Icono n="check" tam={15} />Aprobar</button>
+                      <button type="button" data-accion="aprobar" className="ok-btn chico" onClick={(e) => resolver(f.id_solicitud, 'aprobar', e, f)}><Icono n="check" tam={15} />Aprobar</button>
                       <button type="button" data-accion="rechazar" className="peligro chico" onClick={(e) => resolver(f.id_solicitud, 'rechazar', e)}><Icono n="x" tam={15} />Rechazar</button>
                     </td>
                   </tr>
