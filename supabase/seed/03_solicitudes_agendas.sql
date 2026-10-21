@@ -1,8 +1,15 @@
 -- =====================================================================
+<<<<<<< HEAD
 -- Seed 06: AGENDA DEL DÍA y SOLICITUDES (simulación) — DATOS 100 % SINTÉTICOS.
 -- =====================================================================
 
 -- Limpieza de ejecuciones previas de este seed y de citas de hoy en adelante de clientes sintéticos
+=======
+-- Seed 06: AGENDA DEL DÍA y SOLICITUDES
+-- =====================================================================
+
+-- Limpieza de ejecuciones previas 
+>>>>>>> 1a52b6687f0cd954fd83ea34a090776744cccec6
 delete from public.citas
 where fecha_hora_cita >= (date_trunc('day', now() at time zone 'America/Lima') at time zone 'America/Lima')
   and id_cliente in (select id_cliente from public.clientes
@@ -10,14 +17,22 @@ where fecha_hora_cita >= (date_trunc('day', now() at time zone 'America/Lima') a
 delete from public.solicitudes where fecha_consentimiento = timestamptz '2026-10-05 10:00:30-05';
 delete from public.clientes    where fecha_consentimiento = timestamptz '2026-10-05 10:00:30-05';
 
+<<<<<<< HEAD
 -- Clientes nuevos (los de las solicitudes aprobadas)
+=======
+-- Clientes nuevos 
+>>>>>>> 1a52b6687f0cd954fd83ea34a090776744cccec6
 insert into public.clientes (nombre, dni, telefono, consentimiento, fecha_consentimiento) values
   ('Kevin Ramos Campos', '50034812', '979855585', true, timestamptz '2026-10-05 10:00:30-05'),
   ('Nathaly Rojas Zapata', '69267187', '947643075', true, timestamptz '2026-10-05 10:00:30-05'),
   ('Pamela Ramos Fuentes', '67040737', '954693153', true, timestamptz '2026-10-05 10:00:30-05');
 
 -- Citas de HOY (offset en minutos desde el inicio de la hora actual)
+<<<<<<< HEAD
 -- est: A asistió · N no asistió · C canceló · P pendiente (la fila «P» con hora pasada = por marcar)
+=======
+-- est: A asistió · N no asistió · C canceló · P pendiente 
+>>>>>>> 1a52b6687f0cd954fd83ea34a090776744cccec6
 with base as (select date_trunc('hour', now()) as h)
 insert into public.citas
   (id_cliente, servicio, sede, fecha_hora_cita, fecha_hora_registro, estado_asistencia,
@@ -67,7 +82,11 @@ from base b,
 ) as v(dni, serv, sede, off, est, reg, marca, seg, rec, conf)
 join public.clientes c on c.dni = v.dni;
 
+<<<<<<< HEAD
 -- Citas de MAÑANA (hora de Lima) y de las solicitudes aprobadas
+=======
+-- Citas de MAÑANA y de las solicitudes aprobadas
+>>>>>>> 1a52b6687f0cd954fd83ea34a090776744cccec6
 with dia as (select (date_trunc('day', now() at time zone 'America/Lima') + interval '1 day') as d)
 insert into public.citas
   (id_cliente, servicio, sede, fecha_hora_cita, fecha_hora_registro, estado_asistencia,
@@ -121,4 +140,8 @@ from (values
 -- Verificación
 select (select count(*) from public.citas where fecha_hora_cita >= date_trunc('day', now() at time zone 'America/Lima') at time zone 'America/Lima'
           and id_cliente in (select id_cliente from public.clientes where fecha_consentimiento in (timestamptz '2026-10-05 10:00-05', timestamptz '2026-10-05 10:00:30-05')))  as citas_hoy_y_futuro,
+<<<<<<< HEAD
        (select count(*) from public.solicitudes where estado = 'pendiente' and fecha_consentimiento = timestamptz '2026-10-05 10:00:30-05') as solicitudes_pendientes;
+=======
+       (select count(*) from public.solicitudes where estado = 'pendiente' and fecha_consentimiento = timestamptz '2026-10-05 10:00:30-05') as solicitudes_pendientes;
+>>>>>>> 1a52b6687f0cd954fd83ea34a090776744cccec6
