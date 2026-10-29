@@ -95,13 +95,22 @@ export function createClient() {
         sesion = { user: { id: u.id } };
         return Promise.resolve({ data: { user: sesion.user }, error: null });
       },
-      signOut: () => { sesion = null; return Promise.resolve({ error: null }); }
+      // Alta de cuenta (registro del cliente): crea el usuario de Auth sin perfil; el perfil lo crea registrar_cliente.
+      signUp: ({ email, password }) => {
+        if (redCaida) return Promise.resolve({ data: null, error: new Error('Failed to fetch') });
+        if (USERS[email]) return Promise.resolve({ data: null, error: new Error('User already registered') });
+        const id = `u${++seq}`;
+        USERS[email] = { id, pass: password, perfil: null };
+        sesion = { user: { id } }; db.cuenta_nueva = id;
+        return Promise.resolve({ data: { user: sesion.user, session: sesion }, error: null });
+      },
+      signOut: () => { sesion = null; db.cuenta_nueva = null; return Promise.resolve({ error: null }); }
     },
     from: builder,
     rpc: (nombre, args) => {
       if (redCaida) return Promise.resolve({ data: null, error: new Error('Failed to fetch') });
       const ext = MOCKS.find((x) => x.rpc && x.rpc[nombre]);
-      if (ext) return Promise.resolve(ext.rpc[nombre](args, ctxMock));
+      if (ext) return Promise.resolve(ext.rpc[nombre](args || {}, ctxMock));
       if (nombre === 'aprobar_solicitud') {
         const sol = db.solicitudes.find((x) => x.id_solicitud === args.p_id && x.estado === 'pendiente');
         if (!sol) return Promise.resolve({ data: null, error: new Error('La solicitud no existe o ya fue atendida') });
