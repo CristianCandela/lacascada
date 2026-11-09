@@ -4,6 +4,7 @@ import { supabase, mensajeError } from '../../lib/supabase';
 import Icono from '../../components/Iconos';
 import SedeSelector from './SedeSelector';
 import { sedeGuardada, guardarSede } from './sede';
+import { tomarPendiente, alLlegar } from './puente';
 import { tipoBusqueda, semaforoMembresia, textoMembresia, PLANES, MOTIVOS_ANULACION, montoCobro, nuevoFin } from './logica';
 
 const MEDIOS = [['efectivo', 'Efectivo'], ['yape', 'Yape'], ['plin', 'Plin']];
@@ -35,18 +36,25 @@ export default function Pagos({ onAviso, textoInicial, onUsado }) {
   useEffect(() => { cargar(); }, [cargar]);
 
   // Si otra pantalla manda un cliente (código o DNI), lo busca solo.
-  useEffect(() => {
-    if (!textoInicial) return;
-    (async () => {
-      const r = await supabase.rpc('buscar_cliente', { p_texto: textoInicial });
-      if (r.error) { aviso(mensajeError(r.error)); return; }
-      const datos = Array.isArray(r.data) ? r.data : [];
-      setOk(''); setTexto(textoInicial); setLista(datos);
-      setCliente(datos.length === 1 ? datos[0] : null);
-      if (onUsado) onUsado();
-    })();
+  const buscarEnviado = useCallback(async (t) => {
+    const r = await supabase.rpc('buscar_cliente', { p_texto: t });
+    if (r.error) { aviso(mensajeError(r.error)); return; }
+    const datos = Array.isArray(r.data) ? r.data : [];
+    setOk(''); setTexto(t); setLista(datos);
+    setCliente(datos.length === 1 ? datos[0] : null);
+    if (onUsado) onUsado();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [textoInicial]);
+  }, []);
+
+  useEffect(() => {
+    const t = textoInicial || tomarPendiente();
+    if (t) buscarEnviado(t);
+    return alLlegar(() => {
+      const nuevo = tomarPendiente();
+      if (nuevo) buscarEnviado(nuevo);
+    });
+  }, [textoInicial, buscarEnviado]);
+
 
   async function buscar(e) {
     e.preventDefault();
