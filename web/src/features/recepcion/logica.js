@@ -154,7 +154,7 @@ export function alertasCompletas({ aforoGim, porVencer = [], noShows = 0, ausent
   if (proximas.length) a.push({ id: 'proximas', sev: 2, grupo: 'membresias', icono: 'agenda', titulo: `${proximas.length} membresía(s) por vencer`, detalle: 'Avisa al salir o por WhatsApp.', accion: 'Renovaciones', destino: 'renovaciones' });
   if (noShows > 0) a.push({ id: 'noshows', sev: 2, grupo: 'sauna', icono: 'reloj', titulo: `${noShows} cita(s) de sauna sin llegar`, detalle: 'Pagadas y sin check-in al terminar el turno.', accion: 'Ver Agenda', destino: 'agenda' });
   if (ausentes.length) a.push({ id: 'ausentes', sev: 3, grupo: 'membresias', icono: 'usuarios', titulo: `${ausentes.length} afiliado(s) ausente(s) (14+ días)`, detalle: 'Escríbeles para reactivarlos.', accion: 'Renovaciones', destino: 'renovaciones' });
-  if (pases.length) a.push({ id: 'conversion', sev: 3, grupo: 'membresias', icono: 'check', titulo: `Oportunidad: ${pases[0].nombre} pagó ${pases[0].cuenta} pases`, detalle: 'Ofrécele un plan: le sale más barato.', accion: 'Ir a Pagos', destino: 'pagos' });
+  if (pases.length) a.push({ id: 'conversion', sev: 3, grupo: 'membresias', icono: 'check', titulo: `Oportunidad: ${pases[0].nombre} pagó ${pases[0].cuenta} pases`, detalle: 'Ofrécele un plan: le sale más barato.', accion: 'Ir a Pagos', destino: 'pagos', buscar: pases[0].nombre });
   return a.sort((x, y) => x.sev - y.sev);
 }
 

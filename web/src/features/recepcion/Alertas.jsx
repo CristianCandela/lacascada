@@ -4,6 +4,7 @@ import { supabase, mensajeError } from '../../lib/supabase';
 import Icono from '../../components/Iconos';
 import SedeSelector from './SedeSelector';
 import { sedeGuardada, guardarSede, irA } from './sede';
+import { enviarAPagos } from './puente';
 import { estadoAforo, alertasCompletas } from './logica';
 
 const GRUPOS = [['todas', 'Todas'], ['aforo', 'Aforo'], ['sauna', 'Sauna'], ['membresias', 'Membresías']];
@@ -66,7 +67,7 @@ export default function Alertas({ onAviso }) {
             <span className="rec-alerta-ico"><Icono n={a.icono} tam={20} /></span>
             <div><span className={`rec-estado rec-${ETQ[a.sev][0] === 'azul' ? 'gris' : ETQ[a.sev][0]}`}>{ETQ[a.sev][1]}</span>
               <strong>{a.titulo}</strong><small>{a.detalle}</small></div>
-            <button type="button" className="rec-btn-sec" onClick={() => irA(a.destino, onAviso)}>{a.accion}</button>
+            <button type="button" className="rec-btn-sec" onClick={() => { if (a.destino === 'pagos' && a.buscar) enviarAPagos(a.buscar); irA(a.destino, onAviso); }}>{a.accion}</button>
           </li>
         ))}
       </ul>

@@ -4,6 +4,7 @@ import { supabase, mensajeError } from '../../lib/supabase';
 import Icono from '../../components/Iconos';
 import SedeSelector from './SedeSelector';
 import { sedeGuardada, guardarSede, irA } from './sede';
+import { enviarAPagos } from './puente';
 import { diasParaVencer, semaforoMembresia, mensajeRenovacion, mensajeAusente, enlaceWhatsApp } from './logica';
 
 const VENTANAS = [[3, 'Próx. 3 días'], [7, 'Próx. 7 días'], [15, 'Próx. 15 días']];
@@ -122,7 +123,7 @@ export default function Renovaciones({ onAviso }) {
                       <td>{v === null ? 'Sin visitas' : v === 0 ? 'Hoy' : `Hace ${v} d`}</td>
                       <td>
                         <div className="rec-acciones">
-                          <button type="button" className="rec-btn-nar" onClick={() => irA('pagos', onAviso)}>Cobrar renovación</button>
+                          <button type="button" className="rec-btn-nar" onClick={() => { enviarAPagos(x.codigo_cliente); irA('pagos', onAviso); }}>Cobrar renovación</button>
                           <button type="button" className="rec-btn-wa" onClick={() => whatsapp(x)}>{avisados[clave(x)] ? 'Avisado ✓' : 'WhatsApp'}</button>
                         </div>
                       </td>
