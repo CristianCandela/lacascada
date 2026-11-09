@@ -1,0 +1,31 @@
+# Dueños del código. Cada cambio en una carpeta pide la revisión de su dueño.
+# REEMPLAZA los marcadores @USUARIO-... por los usuarios reales de GitHub de cada integrante.
+# La última regla que coincide es la que aplica. El dueño de cada carpeta y Cristian pueden aprobar
+# (así nadie queda bloqueado por ser autor de su propio cambio).
+
+# Por defecto, núcleo y todo lo no asignado: Cristian
+*                                   @CristianCandela
+
+# Cliente — Abel
+/web/src/features/cliente/          @USUARIO-ABEL @CristianCandela
+/web/tests/cliente.test.js          @USUARIO-ABEL @CristianCandela
+/web/tests/e2e/cliente.mjs          @USUARIO-ABEL @CristianCandela
+
+# Recepción — Leticia
+/web/src/features/recepcion/        @USUARIO-LETICIA @CristianCandela
+/web/src/components/Agenda.jsx      @USUARIO-LETICIA @CristianCandela
+/web/src/components/FormularioReserva.jsx @USUARIO-LETICIA @CristianCandela
+/web/src/components/Solicitudes.jsx @USUARIO-LETICIA @CristianCandela
+/web/tests/recepcion.test.js        @USUARIO-LETICIA @CristianCandela
+/web/tests/e2e/recepcion.mjs        @USUARIO-LETICIA @CristianCandela
+
+# Administración — Dennis
+/web/src/features/admin/            @USUARIO-DENNIS @CristianCandela
+/web/src/components/PanelNoShows.jsx @USUARIO-DENNIS @CristianCandela
+/web/src/components/Graficos.jsx    @USUARIO-DENNIS @CristianCandela
+/web/src/components/Bitacora.jsx    @USUARIO-DENNIS @CristianCandela
+/web/tests/admin.test.js            @USUARIO-DENNIS @CristianCandela
+/web/tests/e2e/admin.mjs            @USUARIO-DENNIS @CristianCandela
+
+# Público y núcleo — Cristian (también aplica por defecto): features/publico, App.jsx, styles.css,
+# lib/, hooks/, mock/, supabase/ (migraciones), package.json, .github/

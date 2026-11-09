@@ -1,0 +1,14 @@
+{
+  "name": "La Cascada · Reservas y no-shows",
+  "short_name": "La Cascada",
+  "description": "Reservas y control de asistencia (MVP académico con datos ficticios)",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F8FB",
+  "theme_color": "#29A9E1",
+  "lang": "es",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
