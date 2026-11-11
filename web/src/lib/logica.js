@@ -191,7 +191,12 @@ export const ACCIONES_BITACORA = {
   eliminar: 'Eliminó cita',
   solicitar: 'Envió solicitud',
   aprobar: 'Aprobó solicitud',
-  rechazar: 'Rechazó solicitud'
+  rechazar: 'Rechazó solicitud',
+  autoregistro: 'Se registró (cliente)',
+  checkin: 'Registró entrada',
+  checkout: 'Registró salida',
+  pago: 'Registró pago',
+  motivo_ausencia: 'Anotó motivo de ausencia'
 };
 
 const NOMBRES_ESTADO = { pendiente: 'Pendiente', asistio: 'Asistió', no_asistio: 'No asistió', cancelo: 'Canceló' };
@@ -224,6 +229,16 @@ export function detalleBitacora(ev = {}) {
     case 'aprobar':
     case 'rechazar':
       return [NOMBRES_SERVICIO[d.servicio] || d.servicio, d.sede, cuando(d.fecha_hora_preferida)].filter(Boolean).join(' · ');
+    case 'autoregistro':
+      return d.vinculado ? 'Vinculó su cuenta a un cliente existente' : 'Creó su cuenta de cliente';
+    case 'checkin':
+      return `${d.sede || ''} · ${d.metodo === 'manual' ? 'manual (recepción)' : 'con código'}`;
+    case 'checkout':
+      return d.metodo === 'manual' ? 'Salida manual (recepción)' : 'Salida registrada';
+    case 'pago':
+      return `${d.plan || 'Plan'} · S/ ${d.monto} · ${d.medio}`;
+    case 'motivo_ausencia':
+      return `Motivo: ${d.motivo}`;
     case 'editar':
       return 'Cambió servicio, sede u hora';
     default:

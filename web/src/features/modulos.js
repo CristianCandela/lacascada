@@ -3,13 +3,13 @@
 import { modulos as publico, rutasPublicas } from './publico';
 import { modulos as recepcion } from './recepcion';
 import { modulos as admin } from './admin';
-import { modulos as cliente } from './cliente';
+import { modulos as cliente, rutasPublicas as rutasCliente } from './cliente';
 
 // Orden del menú lateral. Cada módulo: { id, texto, icono, roles, admin?, Componente }
 export const MODULOS = [...recepcion, ...admin, ...cliente, ...publico];
 
 // Rutas sin sesión (hash). Ejemplo: '#/reservar' -> componente de página completa.
-export const RUTAS_PUBLICAS = { ...rutasPublicas };
+export const RUTAS_PUBLICAS = { ...rutasPublicas, ...rutasCliente };
 
 // Módulos que ve un rol concreto.
 export const modulosDeRol = (rol) => MODULOS.filter((m) => m.roles.includes(rol));
