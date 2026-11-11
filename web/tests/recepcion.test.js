@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { diasParaVencer, semaforoMembresia, estadoAforo, tipoBusqueda} from '../src/features/recepcion/logica.js';
 import { esDniValido, esTelefonoValido } from '../src/features/recepcion/logica.js';
 import { mensajeRenovacion, enlaceWhatsApp } from '../src/features/recepcion/logica.js';
-
+import { montoCobro, nuevoFin } from '../src/features/recepcion/logica.js';
 
 test('recepción: días para que venza una membresía', () => {
   const hoy = new Date(2026, 9, 20, 15, 30);
