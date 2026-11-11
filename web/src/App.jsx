@@ -6,8 +6,12 @@ import Icono, { Logo } from './components/Iconos';
 import Cabecera from './components/Cabecera';
 import Login from './components/Login';
 import { modulosDeRol, RUTAS_PUBLICAS } from './features/modulos';
+import Landing from './features/publico/Landing';
 
-function Aplicacion() {
+// Páginas de inicio (sin sesión): la portada pública. Cualquier otra ruta sin sesión muestra el ingreso.
+const RUTAS_INICIO = ['', '#', '#/', '#/inicio'];
+
+function Aplicacion({ ruta }) {
   const { cargando, perfil, error, entrar, salir } = useSesion();
   const [tab, setTab] = useState(null);
   const [aviso, setAviso] = useState(null);
@@ -16,7 +20,15 @@ function Aplicacion() {
   const cambiar = (t) => { setAviso(null); setTab(t); };
 
   if (cargando) return <p className="cargando-pagina">Cargando…</p>;
-  if (!perfil) return <Login onEntrar={entrar} error={error} />;
+  if (!perfil) {
+    if (RUTAS_INICIO.includes(ruta)) return <Landing tieneRegistro={Boolean(RUTAS_PUBLICAS['#/registro'])} />;
+    return (
+      <>
+        <p className="pub-volver"><a href="#/inicio">Volver al inicio</a></p>
+        <Login onEntrar={entrar} error={error} />
+      </>
+    );
+  }
 
   // El menú sale del registro de módulos (features/): cada rol ve solo sus pantallas.
   const visibles = modulosDeRol(perfil.rol);
@@ -78,5 +90,5 @@ export default function App() {
   }
   const Publica = RUTAS_PUBLICAS[ruta];
   if (Publica) return <Publica />;
-  return <Aplicacion />;
+  return <Aplicacion ruta={ruta} />;
 }
