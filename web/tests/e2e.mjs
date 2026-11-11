@@ -44,6 +44,7 @@ function manana(h) {
     return page;
   }
   async function login(page, email, pass) {
+    if (await page.locator('#btn-ingresar').count()) await page.click('#btn-ingresar');
     await page.fill('#login-email', email);
     await page.fill('#login-pass', pass);
     await page.click('#btn-login');
