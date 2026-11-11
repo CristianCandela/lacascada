@@ -5,7 +5,7 @@ import { validarReserva, calcularPorcentajes, aCSV, urlWhatsApp, mensajeRecordat
 
 const ahora = new Date('2026-10-11T10:00:00');
 const ok = { nombre: 'Ana Pérez', dni: '70000001', telefono: '900000001', servicio: 'sauna',
-  sede: 'Año Nuevo', fecha_hora: '2026-10-12T18:00', consentimiento: true };
+  sede: 'Túpac Amaru', fecha_hora: '2026-10-12T18:00', consentimiento: true };
 const con = (o) => ({ ...ok, ...o });
 
 test('reserva válida', () => assert.equal(validarReserva(ok, ahora).ok, true));
@@ -31,7 +31,7 @@ test('porcentajes sin datos (sin dividir por cero)', () => {
   assert.deepEqual([p.pct_no_show, p.pct_asistencia, p.pct_registro], [0, 0, 0]);
 });
 test('CSV sin datos personales', () => {
-  const csv = aCSV([{ id_cita: 'c1', id_cliente: 'k1', servicio: 'sauna', sede: 'Año Nuevo',
+  const csv = aCSV([{ id_cita: 'c1', id_cliente: 'k1', servicio: 'sauna', sede: 'Túpac Amaru',
     fecha_hora_cita: 'f1', fecha_hora_registro: 'f0', estado_asistencia: 'no_asistio' }]);
   assert.ok(csv.split('\n')[1].endsWith(',1'));
   assert.ok(!/dni|telefono|nombre/.test(csv));
@@ -47,9 +47,9 @@ test('urlWhatsApp: teléfono inválido devuelve null', () => {
   assert.equal(urlWhatsApp('', 'x'), null);
 });
 test('mensajeRecordatorio incluye cliente, servicio y sede', () => {
-  const m = mensajeRecordatorio({ servicio: 'sauna', sede: 'Año Nuevo', fecha_hora_cita: '2026-10-14T18:00:00',
+  const m = mensajeRecordatorio({ servicio: 'sauna', sede: 'Túpac Amaru', fecha_hora_cita: '2026-10-14T18:00:00',
     clientes: { nombre: 'Ana' } });
-  assert.match(m, /Ana/); assert.match(m, /sauna/); assert.match(m, /Año Nuevo/);
+  assert.match(m, /Ana/); assert.match(m, /sauna/); assert.match(m, /Túpac Amaru/);
 });
 
 // ---------- Riesgo, aforo y métricas (migración 3) ----------
@@ -104,7 +104,7 @@ test('serie diaria: completa los 14 días aunque no haya citas', () => {
   assert.equal(s[0].asistio + s[0].no_asistio, 0);
 });
 test('CSV incluye segundos_registro y marca no_show solo para «no asistió»', () => {
-  const base = { id_cita: 'c', id_cliente: 'k', servicio: 'sauna', sede: 'Año Nuevo', fecha_hora_cita: 'f', fecha_hora_registro: 'f0' };
+  const base = { id_cita: 'c', id_cliente: 'k', servicio: 'sauna', sede: 'Túpac Amaru', fecha_hora_cita: 'f', fecha_hora_registro: 'f0' };
   const csv = aCSV([{ ...base, estado_asistencia: 'cancelo', segundos_registro: 1.4 }, { ...base, estado_asistencia: 'no_asistio' }]).split('\n');
   assert.match(csv[0], /segundos_registro,no_show$/);
   assert.ok(csv[1].endsWith(',cancelo,1.4,0'));

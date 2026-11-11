@@ -54,7 +54,7 @@ function manana(h) {
     await page.fill('#r-dni', o.dni ?? '70000099');
     await page.fill('#r-telefono', o.telefono ?? '900000099');
     await page.selectOption('#r-servicio', o.servicio ?? 'sauna');
-    await page.selectOption('#r-sede', o.sede ?? 'Año Nuevo');
+    await page.selectOption('#r-sede', o.sede ?? 'Túpac Amaru');
     await page.fill('#r-fecha', o.fecha ?? manana(18));
     if (o.consent !== false) await page.check('#r-consent');
   }
@@ -193,9 +193,9 @@ function manana(h) {
     const hoyH = (h) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.toISOString(); };
     db.clientes.push({ id_cliente: 'k2', nombre: 'Cliente Demo 02', dni: '70000002', telefono: '900000002' });
     [['no_asistio', 3], ['no_asistio', 5], ['asistio', 8]].forEach(([e, n], i) => db.citas.push({
-      id_cita: 'h' + i, id_cliente: 'k2', servicio: 'sauna', sede: 'Año Nuevo', fecha_hora_cita: dias(n, 18),
+      id_cita: 'h' + i, id_cliente: 'k2', servicio: 'sauna', sede: 'Túpac Amaru', fecha_hora_cita: dias(n, 18),
       fecha_hora_registro: dias(n + 1, 9), estado_asistencia: e }));
-    db.citas.push({ id_cita: 'r1', id_cliente: 'k2', servicio: 'gimnasio', sede: 'Año Nuevo', fecha_hora_cita: hoyH(22),
+    db.citas.push({ id_cita: 'r1', id_cliente: 'k2', servicio: 'gimnasio', sede: 'Túpac Amaru', fecha_hora_cita: hoyH(22),
       fecha_hora_registro: hoyH(0), estado_asistencia: 'pendiente' });
   });
   await q.click('[data-tab="agenda"]');
@@ -217,7 +217,7 @@ function manana(h) {
   chk('29. Log de tiempo: guarda marcada_en y segundos_registro (número ≥ 0)',
     !!reg.marcada_en && typeof reg.segundos_registro === 'number' && reg.segundos_registro >= 0);
 
-  // Aforo: en el mock el sauna de Año Nuevo admite 2 por franja
+  // Aforo: en el mock el sauna de Túpac Amaru admite 2 por franja
   await q.click('[data-tab="registrar"]');
   const reservar = async (dni) => {
     await llenar(q, { nombre: 'Aforo Prueba Uno', dni, telefono: '9000000' + dni.slice(-2), fecha: manana(20) });
@@ -274,7 +274,7 @@ function manana(h) {
     db.clientes.push({ id_cliente: 'kx', nombre: 'Cliente Demo 09', dni: '70000009', telefono: '900000009' });
     for (let i = 0; i < 30; i++) {
       const no = i % 4 === 0, rec = i % 3 === 0;
-      db.citas.push({ id_cita: 'g' + i, id_cliente: 'kx', servicio: i % 2 ? 'sauna' : 'gimnasio', sede: i % 3 ? 'Año Nuevo' : 'Santa Rosa',
+      db.citas.push({ id_cita: 'g' + i, id_cliente: 'kx', servicio: i % 2 ? 'sauna' : 'gimnasio', sede: i % 3 ? 'Túpac Amaru' : 'Santa Rosa',
         fecha_hora_cita: dias(1 + (i % 13), 8 + (i % 14)), fecha_hora_registro: dias(2 + (i % 13), 8),
         estado_asistencia: no ? 'no_asistio' : (i % 11 === 0 ? 'cancelo' : 'asistio'),
         recordatorio_enviado_en: rec ? dias(1, 7) : null, segundos_registro: 1.2 + (i % 5) / 10 });
