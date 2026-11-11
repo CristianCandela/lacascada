@@ -1,7 +1,7 @@
 // Simulación de lo que Recepción necesita del servidor (solo `npm run dev:mock` y e2e).
 // CONTRATO = ya está en docs/CONTRATO_DATOS.md | PROPUESTA = pendiente de PR a Cristian.
 import { calcularTarifaSauna, esAfiliadoVigente, tipoBusqueda, PLANES, MOTIVOS_ANULACION, montoCobro, nuevoFin,
-  clientesConPases, entradasPorHora } from './logica';
+  clientesConPases, entradasPorHora } from './logica.js';
 
 const SEDE = 'Santa Rosa';
 const CAP_GIM = 40;
