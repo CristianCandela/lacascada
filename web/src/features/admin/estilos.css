@@ -1,1 +1,200 @@
-/* Estilos de admin. Prefijo de clases: adm-  (no edites styles.css global). Importa este archivo desde tus componentes. */
+/* Estilos de admin. Prefijo de clases: adm- (no edites styles.css global). Importa este archivo desde tus componentes. */
+
+.adm-seccion {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 100%;
+}
+
+.adm-header h2 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.4rem;
+  color: #0f172a;
+}
+
+.adm-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+
+.adm-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1.15rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.adm-card h3 {
+  margin: 0 0 0.85rem 0;
+  font-size: 1.1rem;
+  color: #1e293b;
+}
+
+.adm-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.85rem;
+}
+
+.adm-form-grid label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 0.35rem;
+}
+
+.adm-form-grid input,
+.adm-form-grid select {
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  box-sizing: border-box;
+}
+
+.adm-form-accion {
+  display: flex;
+  align-items: flex-end;
+}
+
+.adm-btn {
+  padding: 0.5rem 0.9rem;
+  border-radius: 6px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.adm-btn-primario {
+  background-color: #0284c7;
+  color: #ffffff;
+  width: 100%;
+}
+
+.adm-btn-whatsapp {
+  background-color: #16a34a;
+  color: #ffffff;
+}
+
+.adm-btn-sm {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.adm-tabla-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.adm-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.88rem;
+}
+
+.adm-tabla th,
+.adm-tabla td {
+  padding: 0.65rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.adm-tabla th {
+  background-color: #f8fafc;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.adm-barra-filtro {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.adm-barra-filtro h3 {
+  margin: 0;
+}
+
+.adm-filtro-dias {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.adm-motivo-inline {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.adm-badge-activo {
+  background-color: #dcfce7;
+  color: #15803d;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.adm-badge-inactivo {
+  background-color: #fee2e2;
+  color: #b91c1c;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.adm-badge-alerta {
+  background-color: #fef3c7;
+  color: #b45309;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.adm-badge-servicio {
+  background-color: #f1f5f9;
+  color: #334155;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  text-transform: capitalize;
+}
+
+.adm-alerta-error {
+  background-color: #fef2f2;
+  color: #991b1b;
+  padding: 0.65rem;
+  border-radius: 6px;
+  margin-bottom: 0.85rem;
+  border: 1px solid #fecaca;
+  font-size: 0.85rem;
+}
+
+.adm-alerta-ok {
+  background-color: #f0fdf4;
+  color: #166534;
+  padding: 0.65rem;
+  border-radius: 6px;
+  margin-bottom: 0.85rem;
+  border: 1px solid #bbf7d0;
+  font-size: 0.85rem;
+}

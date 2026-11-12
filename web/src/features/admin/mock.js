@@ -17,9 +17,16 @@ export const mock = {
         const vs = db.checkins.filter((k) => k.id_cliente === c.id_cliente).map((k) => k.entrada_en).sort();
         const ultima = vs.length ? vs[vs.length - 1] : null;
         const ms = db.motivos_ausencia.filter((m) => m.id_cliente === c.id_cliente).sort((x, y) => (x.registrado_en < y.registrado_en ? -1 : 1));
-        return { id_cliente: c.id_cliente, nombre: c.nombre, telefono: c.telefono, ultima_visita: ultima,
+        return {
+          id_cliente: c.id_cliente,
+          nombre: c.nombre,
+          telefono: c.telefono,
+          ultima_visita: ultima,
           dias_sin_asistir: ultima ? Math.floor((new Date(`${hoy}T00:00:00Z`) - new Date(`${new Date(new Date(ultima).getTime() - 5 * 3600 * 1000).toISOString().slice(0, 10)}T00:00:00Z`)) / 86400000) : null,
-          membresia_fin: membresiaVigente(db, c.id_cliente), ultimo_motivo: ms.length ? ms[ms.length - 1].motivo : null, _t: ultima ? new Date(ultima).getTime() : -1 };
+          membresia_fin: membresiaVigente(db, c.id_cliente),
+          ultimo_motivo: ms.length ? ms[ms.length - 1].motivo : null,
+          _t: ultima ? new Date(ultima).getTime() : -1
+        };
       }).filter((r) => r._t < corte).sort((x, y) => x._t - y._t).map(({ _t, ...r }) => r));
     },
 
