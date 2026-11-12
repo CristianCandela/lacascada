@@ -43,6 +43,7 @@ Las funciones que devuelven `{ ok, motivo }` **no lanzan error** ante un rechazo
 | `checkout` | — | `{ ok, motivo? }` |
 | `reservar_sauna` | `p_sede`, `p_fecha_hora` | `id_cita`. Errores: aforo completo, duplicado, fuera de horario, sin membresía, fecha pasada o a más de 30 días |
 | `cancelar_reserva` | `p_id_cita` | `{ ok, motivo? }` |
+| `mis_reservas` | — | lista `{ id_cita, servicio, sede, fecha_hora_cita, estado_asistencia }` |
 | `mi_membresia` | — | `{ vigente, plan, inicio, fin, dias_restantes }` |
 | `mis_visitas` | `p_limite` (20) | lista `{ entrada_en, salida_en, sede }` |
 | `mis_datos` | — | `{ nombre, dni, telefono, estado, consentimiento, fecha_consentimiento }` |
