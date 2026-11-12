@@ -6,11 +6,11 @@ import MiMembresia from './MiMembresia.jsx';
 import MisReservas from './MisReservas.jsx';
 
 export const modulos = [
-  { id: 'ingresar-codigo', texto: 'Check-in Gimnasio', icono: 'codigo', roles: ['cliente'], Componente: IngresarCodigo },
-  { id: 'mi-membresia', texto: 'Mi Membresía', icono: 'tarjeta', roles: ['cliente'], Componente: MiMembresia },
-  { id: 'mis-reservas', texto: 'Mis reservas', icono: 'agenda', roles: ['cliente'], Componente: MisReservas }
+  { id: 'ingresar-codigo', texto: 'Check-in Gimnasio', icono: 'solicitudes', roles: ['cliente'], Componente: IngresarCodigo },
+  { id: 'mi-membresia', texto: 'Mi Membresía', icono: 'clientes', roles: ['cliente'], Componente: MiMembresia },
+  { id: 'mis-reservas', texto: 'Mis Reservas', icono: 'agenda', roles: ['cliente'], Componente: MisReservas }
 ];
 
-export const rutasPublicas = [
-  { id: 'registro', ruta: '#/registro', texto: 'Registro', Componente: Registro }
-];
+export const rutasPublicas = {
+  '#/registro': Registro
+};
