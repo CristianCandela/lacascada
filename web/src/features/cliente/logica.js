@@ -14,9 +14,44 @@ export function etiquetaEstadoReserva(estado) {
 }
 
 /**
+ * Devuelve la clase CSS de color según el estado de la reserva o membresía (HU-C4 / HU-C5)
+ */
+export function claseBadgeEstado(estado) {
+  if (!estado) return 'cli-badge-gris';
+  const normalizado = String(estado).toLowerCase();
+  if (normalizado === 'asistio' || normalizado === 'completada' || normalizado === 'confirmada' || normalizado === 'vigente' || normalizado === 'activa') {
+    return 'cli-badge-verde';
+  }
+  if (normalizado === 'pendiente' || normalizado === 'reservada') {
+    return 'cli-badge-amarillo';
+  }
+  if (normalizado === 'cancelo' || normalizado === 'cancelada' || normalizado === 'no_show' || normalizado === 'vencida') {
+    return 'cli-badge-rojo';
+  }
+  return 'cli-badge-gris';
+}
+
+/**
+ * Valida las credenciales de cuenta para el registro en Supabase Auth (HU-C1)
+ */
+export function validarCredencialesRegistro({ email, password }) {
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim())) {
+    return { valido: false, motivo: 'Ingrese un correo electrónico válido' };
+  }
+  if (!password || String(password).length < 6) {
+    return { valido: false, motivo: 'La contraseña debe tener al menos 6 caracteres' };
+  }
+  return { valido: true };
+}
+
+/**
  * Valida el formulario de autoregistro de cliente (HU-C1)
  */
-export function validarDatosRegistro({ nombre, dni, telefono, consentimiento, codigoLocal }) {
+export function validarDatosRegistro({ email, password, nombre, dni, telefono, consentimiento, codigoLocal }) {
+  if (email !== undefined || password !== undefined) {
+    const cred = validarCredencialesRegistro({ email, password });
+    if (!cred.valido) return cred;
+  }
   if (!nombre || nombre.trim().length === 0) {
     return { valido: false, motivo: 'El nombre es obligatorio' };
   }
@@ -104,4 +139,26 @@ export function formatearFecha(fechaIso) {
     minute: '2-digit',
     hour12: true
   });
+}
+
+/**
+ * Formatea fechas (YYYY-MM-DD o ISO) al estándar peruano sin desfase horario
+ */
+export function formatearFechaPe(fechaIso) {
+  if (!fechaIso) return '—';
+  const texto = String(fechaIso);
+  if (!texto.includes('T')) {
+    const partes = texto.split('-');
+    if (partes.length === 3) {
+      const local = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+      if (!isNaN(local.getTime())) {
+        return local.toLocaleDateString('es-PE', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        });
+      }
+    }
+  }
+  return formatearFecha(fechaIso);
 }
