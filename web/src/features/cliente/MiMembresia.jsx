@@ -1,10 +1,10 @@
 // web/src/features/cliente/MiMembresia.jsx
 import React, { useState, useEffect } from 'react';
-import { mock } from './mock';
-import { formatearFechaPe } from './logica';
+import { supabase } from '../../lib/supabase';
+import { formatearFechaPe, etiquetaEstadoMembresia } from './logica';
 import './estilos.css';
 
-export default function MiMembresia() {
+export default function MiMembresia({ onAviso }) {
   const [membresia, setMembresia] = useState(null);
   const [visitas, setVisitas] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -12,15 +12,28 @@ export default function MiMembresia() {
   useEffect(() => {
     async function cargarDatos() {
       setCargando(true);
-      const resMembresia = await mock.rpc.mi_membresia();
-      const resVisitas = await mock.rpc.mis_visitas({ p_limite: 10 });
+      try {
+        const [resMembresia, resVisitas] = await Promise.all([
+          supabase.rpc('mi_membresia'),
+          supabase.rpc('mis_visitas', { p_limite: 20 })
+        ]);
 
-      if (resMembresia?.data) setMembresia(resMembresia.data);
-      if (resVisitas?.data) setVisitas(resVisitas.data);
-      setCargando(false);
+        const falla = [resMembresia, resVisitas].find((r) => r.error);
+        if (falla) throw falla.error;
+
+        if (resMembresia.data) setMembresia(resMembresia.data);
+        setVisitas(Array.isArray(resVisitas.data) ? resVisitas.data : []);
+      } catch (err) {
+        if (onAviso) onAviso(err.message || 'No se pudo cargar tu membresía.', 'error');
+      } finally {
+        setCargando(false);
+      }
     }
     cargarDatos();
-  }, []);
+  }, [onAviso]);
+
+  const diasRestantes = membresia?.dias_restantes ?? 0;
+  const porVencer = Boolean(membresia?.vigente && diasRestantes <= 7);
 
   return (
     <div className="cli-contenedor">
@@ -40,12 +53,28 @@ export default function MiMembresia() {
             <p><strong>Plan:</strong> {membresia.plan || 'Sin plan asignado'}</p>
             <p>
               <strong>Estado: </strong>
-              <span className={`cli-badge ${membresia.vigente ? 'cli-badge-asistio' : 'cli-badge-cancelo'}`}>
-                {membresia.vigente ? 'Vigente' : 'Vencida'}
+              <span
+                className={`cli-badge ${
+                  !membresia.vigente
+                    ? 'cli-badge-cancelo'
+                    : porVencer
+                    ? 'cli-badge-pendiente'
+                    : 'cli-badge-asistio'
+                }`}
+              >
+                {etiquetaEstadoMembresia(membresia.vigente, diasRestantes)}
               </span>
             </p>
-            <p><strong>Vigencia:</strong> {membresia.inicio || '-'} al {membresia.fin || '-'}</p>
-            <p><strong>Días restantes:</strong> {membresia.dias_restantes ?? 0} días</p>
+            <p>
+              <strong>Vigencia:</strong> {formatearFechaPe(membresia.inicio)} al {formatearFechaPe(membresia.fin)}
+            </p>
+            <p><strong>Días restantes:</strong> {diasRestantes} días</p>
+
+            {porVencer && (
+              <p className="cli-alerta-aviso" role="alert">
+                Aviso: Tu membresía vence en {diasRestantes} {diasRestantes === 1 ? 'día' : 'días'}. Acércate a recepción para renovarla.
+              </p>
+            )}
           </div>
         ) : (
           <p className="ayuda">No se encontró información de membresía.</p>

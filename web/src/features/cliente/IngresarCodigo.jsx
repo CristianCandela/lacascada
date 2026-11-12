@@ -1,7 +1,7 @@
 // web/src/features/cliente/IngresarCodigo.jsx
 import React, { useState } from 'react';
-import { mock } from './mock';
-import { validarCodigo6Digitos } from './logica';
+import { supabase } from '../../lib/supabase';
+import { validarCodigoCheckin } from './logica.js';
 import './estilos.css';
 
 export default function IngresarCodigo({ onAviso }) {
@@ -11,34 +11,48 @@ export default function IngresarCodigo({ onAviso }) {
 
   const handleCheckin = async (e) => {
     e.preventDefault();
-    if (!validarCodigo6Digitos(codigo)) {
+    if (!validarCodigoCheckin(codigo)) {
       if (onAviso) onAviso('El código debe tener exactamente 6 dígitos numéricos.', 'error');
       return;
     }
 
     setCargando(true);
-    const res = await mock.rpc.checkin({ p_codigo: codigo });
-    setCargando(false);
+    try {
+      const { data, error } = await supabase.rpc('checkin', { p_codigo: codigo });
+      if (error) throw error;
 
-    if (res?.data?.ok) {
-      setDentro(true);
-      setCodigo('');
-      if (onAviso) onAviso(`¡Ingreso registrado correctamente! Sede: ${res.data.sede || 'Principal'}`, 'exito');
-    } else {
-      if (onAviso) onAviso(res?.data?.motivo || 'Error al validar el código', 'error');
+      if (data?.ok) {
+        setDentro(true);
+        setCodigo('');
+        if (onAviso) {
+          onAviso(`¡Ingreso registrado correctamente! Sede: ${data.sede || 'Principal'}`, 'exito');
+        }
+      } else {
+        if (onAviso) onAviso(data?.motivo || 'Error al validar el código', 'error');
+      }
+    } catch (err) {
+      if (onAviso) onAviso(err.message || 'Error al validar el código', 'error');
+    } finally {
+      setCargando(false);
     }
   };
 
   const handleCheckout = async () => {
     setCargando(true);
-    const res = await mock.rpc.checkout();
-    setCargando(false);
+    try {
+      const { data, error } = await supabase.rpc('checkout');
+      if (error) throw error;
 
-    if (res?.data?.ok) {
-      setDentro(false);
-      if (onAviso) onAviso('Salida registrada correctamente.', 'exito');
-    } else {
-      if (onAviso) onAviso(res?.data?.motivo || 'Error al marcar salida', 'error');
+      if (data?.ok) {
+        setDentro(false);
+        if (onAviso) onAviso('Salida registrada correctamente.', 'exito');
+      } else {
+        if (onAviso) onAviso(data?.motivo || 'Error al marcar salida', 'error');
+      }
+    } catch (err) {
+      if (onAviso) onAviso(err.message || 'Error al marcar salida', 'error');
+    } finally {
+      setCargando(false);
     }
   };
 

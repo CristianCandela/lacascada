@@ -1,25 +1,70 @@
 // web/src/features/cliente/MisReservas.jsx
-import React, { useState, useEffect } from 'react';
-import { mock } from './mock';
+import React, { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../../lib/supabase';
 import { etiquetaEstadoReserva, formatearFechaPe, claseBadgeEstado } from './logica';
 import './estilos.css';
 
 export default function MisReservas({ perfil, onAviso }) {
   const [reservas, setReservas] = useState([]);
-  const [sede, setSede] = useState('Principal');
+  const [sede, setSede] = useState('Túpac Amaru');
   const [fechaHora, setFechaHora] = useState('');
+  const [cupos, setCupos] = useState(null);
   const [cargando, setCargando] = useState(false);
 
-  const cargarReservas = async () => {
-    const res = await mock.rpc.mis_reservas();
-    if (res?.data) {
-      setReservas(res.data);
+  const cargarReservas = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.rpc('mis_reservas');
+      if (error) throw error;
+      setReservas(Array.isArray(data) ? data : []);
+    } catch (err) {
+      if (onAviso) onAviso(err.message || 'No se pudieron cargar tus reservas.', 'error');
     }
-  };
+  }, [onAviso]);
 
   useEffect(() => {
     cargarReservas();
-  }, []);
+  }, [cargarReservas]);
+
+  // Consulta disponibilidad de sauna en tiempo real al elegir sede y fecha/hora (HU-C3)
+  useEffect(() => {
+    let activo = true;
+    if (!fechaHora) {
+      setCupos(null);
+      return;
+    }
+
+    async function consultarDisponibilidad() {
+      const fechaObj = new Date(fechaHora);
+      if (Number.isNaN(fechaObj.getTime())) {
+        setCupos(null);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase.rpc('disponibilidad', {
+          p_servicio: 'sauna',
+          p_sede: sede,
+          p_fecha_hora: fechaObj.toISOString()
+        });
+        if (!activo) return;
+        if (error) {
+          setCupos(null);
+          return;
+        }
+        setCupos(data || null);
+      } catch {
+        if (activo) setCupos(null);
+      }
+    }
+
+    consultarDisponibilidad();
+    return () => {
+      activo = false;
+    };
+  }, [sede, fechaHora]);
+
+  const tieneAforo = Boolean(cupos && Number(cupos.capacidad) > 0);
+  const turnoLleno = Boolean(tieneAforo && Number(cupos.libres) <= 0);
 
   const handleReservar = async (e) => {
     e.preventDefault();
@@ -27,30 +72,58 @@ export default function MisReservas({ perfil, onAviso }) {
       if (onAviso) onAviso('Selecciona una fecha y hora para tu reserva.', 'error');
       return;
     }
+    if (turnoLleno) {
+      if (onAviso) onAviso('El turno seleccionado ya no tiene cupos libres.', 'error');
+      return;
+    }
+
+    const fechaObj = new Date(fechaHora);
+    if (Number.isNaN(fechaObj.getTime())) {
+      if (onAviso) onAviso('Fecha u hora inválida.', 'error');
+      return;
+    }
 
     setCargando(true);
-    const res = await mock.rpc.reservar_sauna({ p_sede: sede, p_fecha_hora: fechaHora });
-    setCargando(false);
+    try {
+      const { data, error } = await supabase.rpc('reservar_sauna', {
+        p_sede: sede,
+        p_fecha_hora: fechaObj.toISOString()
+      });
+      if (error) throw error;
 
-    if (res?.data) {
-      if (onAviso) onAviso('¡Reserva de sauna agendada con éxito!', 'exito');
-      setFechaHora('');
-      cargarReservas();
-    } else {
-      if (onAviso) onAviso(res?.error?.message || 'No se pudo registrar la reserva.', 'error');
+      if (data) {
+        if (onAviso) onAviso('¡Reserva de sauna agendada con éxito!', 'exito');
+        setFechaHora('');
+        setCupos(null);
+        await cargarReservas();
+      } else {
+        if (onAviso) onAviso('No se pudo registrar la reserva.', 'error');
+      }
+    } catch (err) {
+      if (onAviso) onAviso(err.message || 'No se pudo registrar la reserva.', 'error');
+    } finally {
+      setCargando(false);
     }
   };
 
   const handleCancelar = async (idCita) => {
     setCargando(true);
-    const res = await mock.rpc.cancelar_reserva({ p_id_cita: idCita });
-    setCargando(false);
+    try {
+      const { data, error } = await supabase.rpc('cancelar_reserva', {
+        p_id_cita: idCita
+      });
+      if (error) throw error;
 
-    if (res?.data?.ok) {
-      if (onAviso) onAviso('Reserva cancelada correctamente.', 'exito');
-      cargarReservas();
-    } else {
-      if (onAviso) onAviso(res?.data?.motivo || 'Error al cancelar reserva.', 'error');
+      if (data?.ok) {
+        if (onAviso) onAviso('Reserva cancelada correctamente.', 'exito');
+        await cargarReservas();
+      } else {
+        if (onAviso) onAviso(data?.motivo || 'Error al cancelar reserva.', 'error');
+      }
+    } catch (err) {
+      if (onAviso) onAviso(err.message || 'Error al cancelar reserva.', 'error');
+    } finally {
+      setCargando(false);
     }
   };
 
@@ -68,7 +141,7 @@ export default function MisReservas({ perfil, onAviso }) {
         <form onSubmit={handleReservar} className="cli-form-reserva">
           <label className="cli-label">Sede:</label>
           <select value={sede} onChange={(e) => setSede(e.target.value)} className="cli-input">
-            <option value="Principal">Sede Principal (Av. Túpac Amaru 6912)</option>
+            <option value="Túpac Amaru">Sede Túpac Amaru (Av. Túpac Amaru 6912)</option>
             <option value="Santa Rosa">Sede Santa Rosa (Av. Túpac Amaru 1857)</option>
           </select>
 
@@ -80,8 +153,20 @@ export default function MisReservas({ perfil, onAviso }) {
             className="cli-input"
           />
 
-          <button type="submit" disabled={cargando} className="cli-btn-primario">
-            {cargando ? 'Agendando...' : 'Agendar Turno'}
+          {tieneAforo && (
+            <p className="ayuda" role="status">
+              {turnoLleno
+                ? 'Turno lleno (0 cupos disponibles).'
+                : `Cupos libres para sauna: ${cupos.libres} de ${cupos.capacidad}`}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={cargando || turnoLleno}
+            className="cli-btn-primario"
+          >
+            {cargando ? 'Agendando...' : turnoLleno ? 'Turno lleno' : 'Agendar Turno'}
           </button>
         </form>
       </div>
@@ -93,7 +178,12 @@ export default function MisReservas({ perfil, onAviso }) {
             {reservas.map((reserva) => (
               <li key={reserva.id_cita} className="cli-item-reserva">
                 <div>
-                  <strong>{reserva.servicio || 'Sauna'}</strong> — Sede {reserva.sede}
+                  <strong>
+                    {reserva.servicio
+                      ? reserva.servicio.charAt(0).toUpperCase() + reserva.servicio.slice(1)
+                      : 'Sauna'}
+                  </strong>{' '}
+                  — Sede {reserva.sede}
                   <div>{formatearFechaPe(reserva.fecha_hora_cita || reserva.fecha_hora)}</div>
                 </div>
                 <div className="cli-acciones">
