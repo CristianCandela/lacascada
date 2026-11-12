@@ -58,6 +58,25 @@ Las funciones que devuelven `{ ok, motivo }` **no lanzan error** ante un rechazo
 | `checkout_manual` | `p_id_cliente` | `{ ok, motivo? }` |
 | `aprobar_solicitud` (existente) | `p_id` | `id_cita` |
 
+**Recepción: funciones nuevas (solo personal).** Las usan las pantallas de Recepción. Si las llama otro rol, devuelven error de permiso.
+| Función | Parámetros | Devuelve |
+|---|---|---|
+| `buscar_cliente` | `p_texto` | lista (máx. 8) de `{ id_cliente, nombre, dni, telefono, codigo_cliente, membresia_fin, ultima_entrada, pase_hoy, citas_hoy }`. 8 dígitos = DNI exacto; código tipo `C-1001` = exacto; otro texto = nombre (sin tildes ni mayúsculas). Texto vacío devuelve `[]`. `citas_hoy`: lista `{ id_cita, fecha_hora_cita, estado_pago, estado_asistencia }` de sauna de hoy, sin canceladas |
+| `verificar_dni` | `p_dni` | `{ existe, nombre?, codigo_cliente? }` |
+| `registrar_cliente_asistido` | `p_nombre`, `p_dni` (8 dígitos), `p_telefono` (9 dígitos, opcional), `p_consentimiento` (debe ser `true`) | `{ id_cliente, codigo_cliente }`. El código es correlativo (`C-1001`…). Errores: falta nombre, DNI o teléfono inválido, falta consentimiento, DNI ya existe |
+| `registros_asistidos_hoy` | `p_limite` (5) | lista `{ nombre, dni, codigo_cliente, asistido_en }`, del más reciente al más antiguo |
+| `pagos_hoy` | `p_limite` (30) | lista `{ id_pago, nombre, codigo, concepto, medio, monto, estado, pagado_en }`. `concepto`: `membresia` / `pase_dia` / `sauna`. `estado`: `registrado` / `anulado` |
+| `anular_pago` | `p_id_pago`, `p_motivo` | `true`. No borra: marca el pago como anulado y guarda el motivo. `p_motivo` debe ser exactamente uno de: `Error al registrar el cobro`, `Operación duplicada de Yape/Plin`, `El cliente desistió`, `Cambio de plan`. Errores: falta motivo, pago no encontrado, pago ya anulado |
+| `entradas_recientes` | `p_limite` (5) | lista `{ nombre, dni, entrada_en, metodo, servicio, fin }`. `fin` es el fin de la última membresía (puede ser nulo) |
+| `resumen_dia` | `p_sede` | `{ entradas, cobros, no_shows, turnos }`. `cobros`: `{ efectivo, yape, plin }` de hoy. `no_shows`: citas de sauna de hoy marcadas «no asistió». `turnos`: los 2 próximos turnos de sauna `{ hora, ocupados, capacidad }` |
+| `resumen_completo` | `p_sede` | `{ cobros, sauna, entradas, por_codigo, por_hora, sin_checkin }`. `cobros`: total y cantidad por medio (`efectivo`, `yape`, `plin`, `n_efectivo`, `n_yape`, `n_plin`), total por concepto (`membresia`, `pase_dia`, `sauna`) y `anulados` (cantidad); los anulados no suman. `sauna`: `{ asistio, no_asistio, pendientes }` de hoy. `entradas`: entradas de gimnasio de hoy en la sede. `por_codigo`: cuántas fueron con código. `por_hora`: entradas por hora. `sin_checkin`: reservas pagadas y pendientes cuya hora empezó hace 1 h o más, `{ id_cita, id_cliente, nombre, fecha_hora_cita }` |
+| `afiliados_ausentes` | `p_dias` (14) | lista `{ id_cliente, nombre, dni, codigo_cliente, telefono, fin, ultima_visita }`: afiliados con membresía vigente sin entrar hace `p_dias` o más. `ultima_visita` es nula si nunca entraron |
+| `oportunidades_conversion` | — | lista `{ id_cliente, nombre, cuenta }` de clientes con 3 o más pases del día no anulados (candidatos a membresía). `cuenta` es la cantidad de pases |
+| `renovaciones_lista` | `p_dias` (7) | lista `{ id_cliente, nombre, dni, codigo_cliente, telefono, fin, ultima_visita }` de membresías que vencen en `p_dias` o ya vencidas, ordenada por `fin` ascendente |
+| `reservas_recepcion_hoy` | `p_limite` (5) | lista `{ nombre, fecha_hora_cita, tarifa, estado_pago }` de las últimas reservas de sauna hechas hoy en recepción |
+| `reservar_sauna_recepcion` | `p_id_cliente`, `p_sede`, `p_fecha_hora`, `p_medio` (`efectivo`/`yape`/`plin`) | `id_cita`. Reserva y cobro en una sola operación: la cita nace pagada y, si no hay cupo, no se cobra. La tarifa la calcula el servidor (afiliado vigente o no); el cliente no envía el monto. Errores: medio inválido, cliente no encontrado, turno ya pasó, aforo completo, cliente ya tiene reserva en ese turno |
+
+
 ### Administración (Dennis)
 | Función | Parámetros | Devuelve |
 |---|---|---|
