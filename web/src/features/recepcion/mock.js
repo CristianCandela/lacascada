@@ -2,6 +2,7 @@
 // CONTRATO = ya está en docs/CONTRATO_DATOS.md | PROPUESTA = pendiente de PR a Cristian.
 import { calcularTarifaSauna, esAfiliadoVigente, tipoBusqueda, PLANES, MOTIVOS_ANULACION, montoCobro, nuevoFin,
   clientesConPases, entradasPorHora } from './logica.js';
+import { ok, err, hoyLima, sumarDias, CODIGO_DEMO, CAPACIDAD, iniciarTablas, entrarGimnasio, cerrarVisitasVencidas } from '../../mock/comunes.js';
 
 const SEDE = 'Santa Rosa';
 const CAP_GIM = 40;
@@ -15,7 +16,6 @@ const horaIso = (iso) => new Date(iso).toISOString().slice(0, 13); // misma lóg
 const mismoDia = (iso) => new Date(iso).toDateString() === new Date().toDateString();
 const sinTildes = (t) => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const etiquetaHora = (d) => `${d.getHours() % 12 || 12}:00 ${d.getHours() >= 12 ? 'pm' : 'am'}`;
-const err = (m) => ({ data: null, error: new Error(m) });
 
 const CLIENTES = [
   ['k101', 'Rodrigo Alva', '47829103', '987000101', 'C-1001'],
@@ -28,6 +28,8 @@ const CLIENTES = [
 const FINES = { k101: 20, k102: null, k103: 2, k104: 5, k105: -2, k106: 12 }; // días hasta el fin (null = sin plan)
 
 const soloPersonal = (ctx) => { const u = ctx.usuario && ctx.usuario(); if (!u) return true; return ['recepcionista', 'administrador'].includes(u.rol); };
+const esPersonal = (ctx) => { const u = ctx.usuario(); return !!u && ['recepcionista', 'administrador'].includes(u.rol); };
+const denegado = () => err('Acceso denegado: solo el personal');
 const ultimaMembresia = (db, id) => db.membresias.filter((m) => m.id_cliente === id).sort((a, b) => (a.fin < b.fin ? 1 : -1))[0];
 const citasEnHora = (db, sede, iso) => db.citas.filter((c) => c.servicio === 'sauna' && c.sede === sede
   && horaIso(c.fecha_hora_cita) === horaIso(iso) && c.estado_asistencia !== 'cancelo');
@@ -49,25 +51,26 @@ export const mock = {
   usuarios: {}, // recepcion@demo.test ya existe en supabase-mock.js
 
   iniciar(db) {
+    iniciarTablas(db);
     CLIENTES.forEach(([id, nombre, dni, telefono, codigo]) =>
       db.clientes.push({ id_cliente: id, nombre, dni, telefono, codigo_cliente: codigo }));
-    db.membresias = CLIENTES.filter(([id]) => FINES[id] !== null).map(([id], i) => ({
+    db.membresias.push(...CLIENTES.filter(([id]) => FINES[id] !== null).map(([id], i) => ({
       id_membresia: `m${i + 1}`, id_cliente: id, id_plan: 'p1', inicio: enDias(-30), fin: enDias(FINES[id]),
       estado: FINES[id] < 0 ? 'vencida' : 'activa'
-    }));
+    })));
     // 18 entradas de gimnasio en los últimos 90 minutos.
-    db.checkins = Array.from({ length: 18 }, (_, i) => ({
+    db.checkins.push(...Array.from({ length: 18 }, (_, i) => ({
       id_checkin: `ch${i + 1}`, id_cliente: CLIENTES[i % CLIENTES.length][0], id_cita: null,
-      sede: SEDE, servicio: 'gimnasio', entrada_en: haceMin(i * 4 + 1), metodo: i % 3 === 0 ? 'manual' : 'codigo'
-    }));
-    db.pagos = [
+           sede: SEDE, servicio: 'gimnasio', entrada_en: haceMin(i * 4 + 1), salida_en: haceMin(i * 4), metodo: i % 3 === 0 ? 'manual' : 'codigo'
+    })));
+    db.pagos.push(...[
       { id_pago: 'pg1', monto: 450, medio: 'efectivo', concepto: 'membresia', pagado_en: haceMin(120) },
       { id_pago: 'pg2', monto: 780, medio: 'yape', concepto: 'membresia', pagado_en: haceMin(90) },
       { id_pago: 'pg3', monto: 250, medio: 'plin', concepto: 'sauna', pagado_en: haceMin(40) },
       { id_pago: 'pg4', id_cliente: 'k102', monto: 20, medio: 'efectivo', concepto: 'pase_dia', pagado_en: haceMin(300) },
       { id_pago: 'pg5', id_cliente: 'k102', monto: 20, medio: 'yape', concepto: 'pase_dia', pagado_en: haceMin(200) },
       { id_pago: 'pg6', id_cliente: 'k102', monto: 20, medio: 'plin', concepto: 'pase_dia', pagado_en: haceMin(100) }
-    ];
+    ]);
     // 3 reservas de sauna pagadas en la hora actual y 1 no-show de hoy.
     const h = new Date(); h.setMinutes(0, 0, 0);
     ['k101', 'k103', 'k104'].forEach((id, i) => db.citas.push({
@@ -85,27 +88,20 @@ export const mock = {
   },
 
   rpc: {
-    // CONTRATO: aforo_actual(p_sede) -> [{ servicio, ocupados, capacidad }]
-    aforo_actual(args, ctx) {
-      const desde = Date.now() - 90 * 60000; // ventana de 90 min
-      const gim = ctx.db.checkins.filter((c) => c.servicio === 'gimnasio' && new Date(c.entrada_en).getTime() >= desde).length;
-      const sauna = citasEnHora(ctx.db, SEDE, new Date().toISOString()).length;
-      return { data: [{ servicio: 'gimnasio', ocupados: gim, capacidad: CAP_GIM }, { servicio: 'sauna', ocupados: sauna, capacidad: CAP_SAUNA }], error: null };
-    },
-
-    // CONTRATO: codigo_local_actual(p_sede) -> { codigo, vigente_hasta }
-    codigo_local_actual() {
-      const hasta = new Date(); hasta.setHours(23, 0, 0, 0);
-      return { data: { codigo: 'CAS-7489', vigente_hasta: hasta.toISOString() }, error: null };
-    },
-
-    // CONTRATO: membresias_por_vencer(p_dias = 7) -> [{ id_cliente, nombre, fin }]
-    membresias_por_vencer(args, ctx) {
-      const limite = enDias((args && args.p_dias) || 7);
-      const data = ctx.db.membresias.filter((m) => m.fin <= limite)
-        .map((m) => ({ id_cliente: m.id_cliente, nombre: ctx.db.clientes.find((c) => c.id_cliente === m.id_cliente).nombre, fin: m.fin }))
-        .sort((a, b) => (a.fin < b.fin ? -1 : 1));
-      return { data, error: null };
+    // CONTRATO: aforo_actual(p_sede?) -> [{ sede, servicio, ocupados, capacidad }]
+    // Misma lógica que features/publico/mock.js: gimnasio = personas dentro; sauna = reservas de la hora actual.
+    aforo_actual(a, ctx) {
+      const { db } = ctx; cerrarVisitasVencidas(db);
+      const sedes = a && a.p_sede ? [a.p_sede] : ['Santa Rosa', 'Túpac Amaru'];
+      const ahora = new Date().toISOString().slice(0, 13);
+      const filas = [];
+      sedes.forEach((sede) => ['gimnasio', 'sauna'].forEach((servicio) => filas.push({
+        sede, servicio, capacidad: CAPACIDAD[servicio][sede],
+        ocupados: servicio === 'gimnasio'
+          ? db.checkins.filter((c) => c.sede === sede && !c.salida_en).length
+          : db.citas.filter((c) => c.servicio === 'sauna' && c.sede === sede && c.fecha_hora_cita.slice(0, 13) === ahora && c.estado_asistencia !== 'cancelo').length
+      })));
+      return ok(filas);
     },
 
     // PROPUESTA: buscar_cliente(p_texto) -> lista de fichas (código, DNI o nombre)
@@ -120,27 +116,6 @@ export const mock = {
         return sinTildes(c.nombre).includes(sinTildes(t));
       });
       return { data: lista.slice(0, 8).map((c) => ficha(ctx.db, c)), error: null };
-    },
-
-    // CONTRATO (se amplía): checkin_manual(p_id_cliente, p_servicio = 'gimnasio', p_id_cita = null) -> id_checkin
-    checkin_manual(args, ctx) {
-      if (!soloPersonal(ctx)) return err('Sin permiso');
-      const cli = ctx.db.clientes.find((c) => c.id_cliente === args.p_id_cliente);
-      if (!cli) return err('Cliente no encontrado');
-      const servicio = args.p_servicio || 'gimnasio';
-      if (servicio === 'gimnasio') {
-        const f = ficha(ctx.db, cli);
-        if (!esAfiliadoVigente(f.membresia_fin) && !f.pase_hoy) return err('Sin membresía vigente ni pase del día pagado');
-      }
-      if (args.p_id_cita) {
-        const cita = ctx.db.citas.find((c) => c.id_cita === args.p_id_cita);
-        if (!cita) return err('La cita no existe');
-        cita.estado_asistencia = 'asistio';
-      }
-      const id = ctx.nuevoId('ch');
-      ctx.db.checkins.push({ id_checkin: id, id_cliente: cli.id_cliente, id_cita: args.p_id_cita || null, sede: SEDE,
-        servicio, entrada_en: new Date().toISOString(), metodo: 'manual' });
-      return { data: id, error: null };
     },
 
     // PROPUESTA: reservar_sauna_recepcion(p_id_cliente, p_sede, p_fecha_hora, p_medio) -> id_cita
@@ -180,7 +155,7 @@ export const mock = {
       }, error: null };
     },
 
-   // PROPUESTA: entradas_recientes(p_limite)
+    // PROPUESTA: entradas_recientes(p_limite)
     entradas_recientes(args, ctx) {
       const lim = (args && args.p_limite) || 5;
       const data = [...ctx.db.checkins].sort((a, b) => (a.entrada_en < b.entrada_en ? 1 : -1)).slice(0, lim).map((c) => {
@@ -217,29 +192,6 @@ export const mock = {
       return { data, error: null };
     },
 
-        // CONTRATO (se amplía): registrar_pago(p_id_cliente, p_id_plan, p_medio, p_concepto) -> id_pago. El monto lo calcula el servidor.
-    registrar_pago(args, ctx) {
-      if (!soloPersonal(ctx)) return err('Sin permiso');
-      if (!['efectivo', 'yape', 'plin'].includes(args.p_medio)) return err('Medio de pago no válido');
-      const cli = ctx.db.clientes.find((c) => c.id_cliente === args.p_id_cliente);
-      if (!cli) return err('Cliente no encontrado');
-      const concepto = args.p_concepto || 'membresia';
-      const plan = PLANES.find((p) => p.id_plan === args.p_id_plan);
-      if (concepto === 'membresia' && !plan) return err('Plan no válido');
-      const monto = montoCobro(concepto, plan);
-      let idMem = null;
-      if (concepto === 'membresia') {
-        const m = ultimaMembresia(ctx.db, cli.id_cliente);
-        const fin = nuevoFin(m && m.fin, plan.dias);
-        idMem = ctx.nuevoId('m');
-        ctx.db.membresias.push({ id_membresia: idMem, id_cliente: cli.id_cliente, id_plan: plan.id_plan, inicio: fecha(new Date()), fin, estado: 'activa' });
-      }
-      const id = ctx.nuevoId('pg');
-      ctx.db.pagos.push({ id_pago: id, id_cliente: cli.id_cliente, id_membresia: idMem, monto, medio: args.p_medio, concepto,
-        estado: 'registrado', registrado_por: 'recepcion', pagado_en: new Date().toISOString() });
-      return { data: id, error: null };
-    },
-
     // PROPUESTA: anular_pago(p_id_pago, p_motivo). No borra: marca como anulado y guarda el motivo.
     anular_pago(args, ctx) {
       if (!soloPersonal(ctx)) return err('Sin permiso');
@@ -263,7 +215,7 @@ export const mock = {
       return { data, error: null };
     },
 
-        // PROPUESTA: verificar_dni(p_dni) -> { existe, nombre? }
+    // PROPUESTA: verificar_dni(p_dni) -> { existe, nombre? }
     verificar_dni(args, ctx) {
       if (!soloPersonal(ctx)) return err('Sin permiso');
       const c = ctx.db.clientes.find((x) => x.dni === String(args.p_dni || '').trim());
@@ -278,7 +230,7 @@ export const mock = {
       return { data, error: null };
     },
 
-        // PROPUESTA: renovaciones_lista(p_dias) -> membresías que vencen en p_dias o ya vencidas, con teléfono y última visita
+    // PROPUESTA: renovaciones_lista(p_dias) -> membresías que vencen en p_dias o ya vencidas, con teléfono y última visita
     renovaciones_lista(args, ctx) {
       if (!soloPersonal(ctx)) return err('Sin permiso');
       const limite = enDias((args && args.p_dias) || 7);
@@ -299,21 +251,21 @@ export const mock = {
       const corte = Date.now() - dias * 86400000;
       const hoyStr = fecha(new Date());
       const data = ctx.db.membresias.filter((m) => m.fin >= hoyStr).map((m) => {
-      const c = ctx.db.clientes.find((x) => x.id_cliente === m.id_cliente);
-      const ent = ctx.db.checkins.filter((x) => x.id_cliente === m.id_cliente).sort((a, b) => (a.entrada_en < b.entrada_en ? 1 : -1))[0];
+        const c = ctx.db.clientes.find((x) => x.id_cliente === m.id_cliente);
+        const ent = ctx.db.checkins.filter((x) => x.id_cliente === m.id_cliente).sort((a, b) => (a.entrada_en < b.entrada_en ? 1 : -1))[0];
         return { id_cliente: m.id_cliente, nombre: c.nombre, dni: c.dni, codigo_cliente: c.codigo_cliente, telefono: c.telefono,
           fin: m.fin, ultima_visita: ent ? ent.entrada_en : null };
       }).filter((x) => !x.ultima_visita || new Date(x.ultima_visita).getTime() < corte);
       return { data, error: null };
     },
 
-        // PROPUESTA: oportunidades_conversion() -> clientes con 3+ pases del día
+    // PROPUESTA: oportunidades_conversion() -> clientes con 3+ pases del día
     oportunidades_conversion(args, ctx) {
       if (!soloPersonal(ctx)) return err('Sin permiso');
       return { data: clientesConPases(ctx.db.pagos, ctx.db.clientes), error: null };
     },
 
-        // PROPUESTA: resumen_completo(p_sede) -> cuadre de caja, asistencia de sauna y entradas por hora
+    // PROPUESTA: resumen_completo(p_sede) -> cuadre de caja, asistencia de sauna y entradas por hora
     resumen_completo(args, ctx) {
       if (!soloPersonal(ctx)) return err('Sin permiso');
       const sede = (args && args.p_sede) || SEDE;
@@ -339,5 +291,88 @@ export const mock = {
         sin_checkin: sinCheckin
       }, error: null };
     },
+
+    // ---- Funciones que existen en Recepción y en Fase 1: versión fusionada ----
+
+    codigo_local_actual(a, ctx) {
+      if (!esPersonal(ctx)) return denegado();
+      const sede = (a && a.p_sede) || SEDE;
+      const c = ctx.db.codigos_local.find((x) => x.sede === sede && new Date(x.vigente_hasta) > new Date());
+      if (!c) return err('Sede no válida.');
+      return ok({ codigo: c.codigo || CODIGO_DEMO, sede: c.sede, vigente_hasta: c.vigente_hasta });
+    },
+
+    // Vencen en p_dias días o vencieron en los últimos 30 sin renovar.
+    membresias_por_vencer(a, ctx) {
+      if (!esPersonal(ctx)) return denegado();
+      const { db } = ctx; const hoy = hoyLima();
+      const lim = sumarDias(hoy, a && a.p_dias != null ? a.p_dias : 7);
+      const ultimos = {};
+      db.membresias.forEach((m) => { if (!ultimos[m.id_cliente] || m.fin > ultimos[m.id_cliente]) ultimos[m.id_cliente] = m.fin; });
+      return ok(Object.entries(ultimos).filter(([, fin]) => fin <= lim && fin >= sumarDias(hoy, -30))
+        .map(([id, fin]) => ({ id_cliente: id, nombre: db.clientes.find((c) => c.id_cliente === id).nombre, fin,
+          dias_restantes: Math.round((new Date(`${fin}T00:00:00Z`) - new Date(`${hoy}T00:00:00Z`)) / 86400000) }))
+        .sort((x, y) => (x.fin < y.fin ? -1 : 1)));
+    },
+
+    // Si la membresía sigue vigente, la nueva empieza al día siguiente de su fin.
+    registrar_pago(a, ctx) {
+      if (!esPersonal(ctx)) return denegado();
+      const { db } = ctx;
+      const medio = a.p_medio || 'efectivo';
+      if (!['efectivo', 'yape', 'plin'].includes(medio)) return err('Medio de pago no válido.');
+      const cli = db.clientes.find((c) => c.id_cliente === a.p_id_cliente);
+      if (!cli) return err('El cliente no existe.');
+      const concepto = a.p_concepto || 'membresia';
+      let plan = null; let idMem = null;
+      if (concepto === 'membresia') {
+        plan = db.planes.find((p) => p.id_plan === a.p_id_plan && p.activo) || PLANES.find((p) => p.id_plan === a.p_id_plan);
+        if (!plan) return err('El plan no existe o no está activo.');
+      }
+      const monto = a.p_monto == null ? montoCobro(concepto, plan) : a.p_monto;
+      if (!(monto > 0)) return err('El monto debe ser mayor que cero.');
+      if (plan) {
+        const fines = db.membresias.filter((m) => m.id_cliente === cli.id_cliente).map((m) => m.fin).sort();
+        const ultimo = fines.length ? fines[fines.length - 1] : null;
+        const hoy = hoyLima();
+        const inicio = ultimo && ultimo >= hoy ? sumarDias(ultimo, 1) : hoy;
+        idMem = ctx.nuevoId('m');
+        db.membresias.push({ id_membresia: idMem, id_cliente: cli.id_cliente, id_plan: plan.id_plan, inicio, fin: sumarDias(inicio, plan.dias - 1) });
+      }
+      const idPago = ctx.nuevoId('pg');
+      db.pagos.push({ id_pago: idPago, id_cliente: cli.id_cliente, id_membresia: idMem, monto, medio, concepto,
+        estado: 'registrado', registrado_por: 'recepcion', pagado_en: new Date().toISOString() });
+      if (ctx.registrar) ctx.registrar('membresias', 'pago', idMem || idPago, cli.id_cliente, { concepto, monto, medio });
+      return ok(idMem || idPago);
+    },
+
+    checkin_manual(a, ctx) {
+      if (!esPersonal(ctx)) return denegado();
+      const cli = ctx.db.clientes.find((c) => c.id_cliente === a.p_id_cliente);
+      if (!cli) return ok({ ok: false, motivo: 'Cliente no encontrado' });
+      const servicio = a.p_servicio || 'gimnasio';
+      const f = ficha(ctx.db, cli);
+      if (servicio === 'gimnasio' && !a.p_id_cita && !f.pase_hoy) return entrarGimnasio(ctx, cli, a.p_sede || SEDE, 'manual');
+      if (servicio === 'gimnasio' && !esAfiliadoVigente(f.membresia_fin) && !f.pase_hoy) return err('Sin membresía vigente ni pase del día pagado');
+      if (a.p_id_cita) {
+        const cita = ctx.db.citas.find((c) => c.id_cita === a.p_id_cita);
+        if (!cita) return err('La cita no existe');
+        cita.estado_asistencia = 'asistio';
+      }
+      const id = ctx.nuevoId('ch');
+      ctx.db.checkins.push({ id_checkin: id, id_cliente: cli.id_cliente, id_cita: a.p_id_cita || null, sede: SEDE,
+        servicio, entrada_en: new Date().toISOString(), metodo: 'manual' });
+      return { data: id, error: null };
+    },
+
+    // Solo existe en la versión de Fase 1 (main).
+    checkout_manual(a, ctx) {
+      if (!esPersonal(ctx)) return denegado();
+      const c = ctx.db.checkins.find((x) => x.id_cliente === a.p_id_cliente && !x.salida_en);
+      if (!c) return ok({ ok: false, motivo: 'El cliente no tiene una entrada abierta.' });
+      c.salida_en = new Date().toISOString();
+      if (ctx.registrar) ctx.registrar('checkins', 'checkout', c.id_checkin, a.p_id_cliente, { metodo: 'manual' });
+      return ok({ ok: true });
+    }
   }
 };

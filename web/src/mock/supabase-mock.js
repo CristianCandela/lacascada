@@ -9,7 +9,7 @@ const USERS = {
 };
 const db = { perfiles: [], clientes: [], citas: [], solicitudes: [] };
 // Aforos de prueba (en producción están en la tabla public.aforos).
-const AFOROS = { 'sauna|Año Nuevo': 2, 'sauna|Santa Rosa': 4, 'gimnasio|Año Nuevo': 30, 'gimnasio|Santa Rosa': 20 };
+const AFOROS = { 'sauna|Túpac Amaru': 2, 'sauna|Santa Rosa': 4, 'gimnasio|Túpac Amaru': 30, 'gimnasio|Santa Rosa': 20 };
 const hora = (iso) => String(iso).slice(0, 13);
 const ocupados = (servicio, sede, iso, excepto) => db.citas.filter((x) => x.servicio === servicio && x.sede === sede
   && hora(new Date(x.fecha_hora_cita).toISOString()) === hora(new Date(iso).toISOString())
@@ -31,12 +31,12 @@ let sesion = null; let redCaida = false; let seq = 1;
 const hoy = (h) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.toISOString(); };
 db.clientes.push({ id_cliente: 'k1', nombre: 'Cliente Demo 01', dni: '70000001', telefono: '900000001' });
 db.citas.push(
-  { id_cita: 'c1', id_cliente: 'k1', servicio: 'sauna', sede: 'Año Nuevo', fecha_hora_cita: hoy(1), fecha_hora_registro: hoy(0), estado_asistencia: 'asistio' },
+  { id_cita: 'c1', id_cliente: 'k1', servicio: 'sauna', sede: 'Túpac Amaru', fecha_hora_cita: hoy(1), fecha_hora_registro: hoy(0), estado_asistencia: 'asistio' },
   { id_cita: 'c2', id_cliente: 'k1', servicio: 'gimnasio', sede: 'Santa Rosa', fecha_hora_cita: hoy(2), fecha_hora_registro: hoy(0), estado_asistencia: 'pendiente' }
 );
 const manana = (h) => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(h, 0, 0, 0); return d.toISOString(); };
 db.solicitudes.push({ id_solicitud: 's1', nombre: 'Cliente Demo 31', dni: '70000031', telefono: '900000031',
-  servicio: 'sauna', sede: 'Año Nuevo', fecha_hora_preferida: manana(18), estado: 'pendiente' });
+  servicio: 'sauna', sede: 'Túpac Amaru', fecha_hora_preferida: manana(18), estado: 'pendiente' });
 const ctxMock = { db, usuario: () => sesion && db.perfiles.find((p) => p.id === sesion.user.id), nuevoId: (p) => `${p}${++seq}`, registrar: typeof registrar === 'function' ? registrar : () => {} };
 MOCKS.forEach((x) => x.iniciar && x.iniciar(db, ctxMock));
 if (typeof window !== 'undefined') window.__mock = { db, caerRed: (v) => { redCaida = v; } };
@@ -95,13 +95,22 @@ export function createClient() {
         sesion = { user: { id: u.id } };
         return Promise.resolve({ data: { user: sesion.user }, error: null });
       },
-      signOut: () => { sesion = null; return Promise.resolve({ error: null }); }
+      // Alta de cuenta (registro del cliente): crea el usuario de Auth sin perfil; el perfil lo crea registrar_cliente.
+      signUp: ({ email, password }) => {
+        if (redCaida) return Promise.resolve({ data: null, error: new Error('Failed to fetch') });
+        if (USERS[email]) return Promise.resolve({ data: null, error: new Error('User already registered') });
+        const id = `u${++seq}`;
+        USERS[email] = { id, pass: password, perfil: null };
+        sesion = { user: { id } }; db.cuenta_nueva = id;
+        return Promise.resolve({ data: { user: sesion.user, session: sesion }, error: null });
+      },
+      signOut: () => { sesion = null; db.cuenta_nueva = null; return Promise.resolve({ error: null }); }
     },
     from: builder,
     rpc: (nombre, args) => {
       if (redCaida) return Promise.resolve({ data: null, error: new Error('Failed to fetch') });
       const ext = MOCKS.find((x) => x.rpc && x.rpc[nombre]);
-      if (ext) return Promise.resolve(ext.rpc[nombre](args, ctxMock));
+      if (ext) return Promise.resolve(ext.rpc[nombre](args || {}, ctxMock));
       if (nombre === 'aprobar_solicitud') {
         const sol = db.solicitudes.find((x) => x.id_solicitud === args.p_id && x.estado === 'pendiente');
         if (!sol) return Promise.resolve({ data: null, error: new Error('La solicitud no existe o ya fue atendida') });
