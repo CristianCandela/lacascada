@@ -26,7 +26,7 @@ function validarCita(n, excepto) {
 }
 MOCKS.forEach((x) => Object.assign(USERS, x.usuarios || {}));
 Object.keys(USERS).forEach((e) => db.perfiles.push({ id: USERS[e].id, ...USERS[e].perfil }));
-let sesion = null; let redCaida = false; let seq = 1;
+let sesion = null; let redCaida = false; let seq = 1000;
 
 const hoy = (h) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.toISOString(); };
 db.clientes.push({ id_cliente: 'k1', nombre: 'Cliente Demo 01', dni: '70000001', telefono: '900000001' });
@@ -72,7 +72,7 @@ function builder(tabla) {
         db[tabla].push(nuevo);
         return resolve(q.single ? { data: nuevo, error: null } : { data: null, error: null });
       }
-      if (q.op === 'update') { filas.forEach((r) => Object.assign(r, q.payload)); return resolve({ data: null, error: null }); }
+           if (q.op === 'update') { filas.forEach((r) => Object.assign(r, q.payload)); return resolve({ data: filas.map((r) => ({ ...r })), error: null }); }
       if (q.op === 'delete') { db[tabla] = db[tabla].filter((r) => !filas.includes(r)); return resolve({ data: null, error: null }); }
       if (q.orden) filas.sort((a, c) => (a[q.orden] < c[q.orden] ? -1 : 1));
       if (tabla === 'citas' && q.sel.includes('clientes('))

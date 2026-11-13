@@ -32,7 +32,9 @@ a { color: var(--azul-fuerte); }
 /* ----- Estructura con barra lateral ----- */
 .app { display: grid; grid-template-columns: 264px minmax(0, 1fr); min-height: 100vh; }
 .lateral { position: sticky; top: 0; height: 100vh; height: 100dvh; display: flex; flex-direction: column;
-  gap: 24px; padding: 22px 14px 16px; background: var(--tarjeta); border-right: 1px solid var(--borde); }
+  gap: 24px; padding: 22px 14px 16px; background: var(--tarjeta); border-right: 1px solid var(--borde);
+  overflow-y: auto; }
+
 .marca, .barra-marca { display: flex; align-items: center; gap: 10px; }
 .marca { padding: 0 8px; }
 .marca-texto { display: flex; flex-direction: column; line-height: 1.15; }

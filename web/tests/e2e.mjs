@@ -49,14 +49,21 @@ function manana(h) {
     await page.fill('#login-pass', pass);
     await page.click('#btn-login');
   }
+  // Formulario de la reserva PÚBLICA (#/reservar). No cambia.
   async function llenar(page, o) {
-    await page.fill('#r-nombre', o.nombre ?? 'Lucía Prueba');
+       await page.fill('#r-nombre', o.nombre ?? 'Lucía Prueba');
     await page.fill('#r-dni', o.dni ?? '70000099');
     await page.fill('#r-telefono', o.telefono ?? '900000099');
     await page.selectOption('#r-servicio', o.servicio ?? 'sauna');
     await page.selectOption('#r-sede', o.sede ?? 'Túpac Amaru');
     await page.fill('#r-fecha', o.fecha ?? manana(18));
     if (o.consent !== false) await page.check('#r-consent');
+  }
+
+  // Entra a la pestaña «Reservar sauna» de recepción (id del módulo = 'reservar').
+  async function irASauna(page) {
+    await page.locator('[data-tab="reservar"]').or(page.locator('.tabs').getByText('Reservar sauna')).first().click();
+    await page.waitForSelector('#rs-q');
   }
 
   // --- Recepcionista ---
@@ -68,29 +75,50 @@ function manana(h) {
   await p.waitForSelector('.tabs');
   chk('2. Login correcto entra a la app', (await p.textContent('#usuario-info')).includes('recepcionista'));
 
-  await p.click('#btn-reserva');
-  chk('3. Formulario vacío: muestra errores y no guarda',
-    (await p.textContent('[data-error="nombre"]')).length > 0 && (await p.evaluate(() => window.__mock.db.citas.length)) === 2);
-  await p.screenshot({ path: carpeta + '/02_formulario_vacio.png' });
+  // Pruebas 3 a 8: pantalla nueva «Reservar sauna» (las validaciones del registro asistido están en tests/e2e/recepcion.mjs)
+  await irASauna(p);
+  const citasAntes = await p.evaluate(() => window.__mock.db.citas.length);
+  chk('3. Pestaña «Reservar sauna» abre: pide cliente y el cobro aún no se muestra',
+    (await p.isVisible('#rs-q')) && (await p.textContent('.rec-resumen')).includes('Elige cliente y turno'));
+  await p.screenshot({ path: carpeta + '/02_reservar_sauna.png' });
 
-  await llenar(p, { telefono: '12345' }); await p.click('#btn-reserva');
-  chk('4. Teléfono inválido rechazado', (await p.textContent('[data-error="telefono"]')).includes('9 dígitos'));
-  await llenar(p, { dni: '123' }); await p.click('#btn-reserva');
-  chk('5. DNI distinto de 8 dígitos rechazado', (await p.textContent('[data-error="dni"]')).includes('8 dígitos'));
-  await llenar(p, { fecha: '2020-01-01T10:00' }); await p.click('#btn-reserva');
-  chk('6. Fecha pasada rechazada', (await p.textContent('[data-error="fecha_hora"]')).includes('posteriores'));
-  await llenar(p, { consent: false }); await p.uncheck('#r-consent'); await p.click('#btn-reserva');
-  chk('7. Sin consentimiento no guarda', (await p.textContent('[data-error="consentimiento"]')).includes('29733'));
+  await p.fill('#rs-q', '47829103'); // Rodrigo Alva (afiliado vigente, mock de recepción)
+  await p.getByRole('button', { name: 'Buscar' }).click();
+  await p.waitForSelector('.rec-cliente-card');
+  await p.getByRole('button', { name: 'Mañana' }).click();   // mañana: no altera la agenda de HOY (prueba 9)
+  await p.waitForTimeout(300);                                // deja que recargue los turnos del nuevo día
+  await p.waitForSelector('.rec-turno-card:not([disabled])');
+  chk('4. Cliente existente: muestra su tarjeta y los turnos con cupos',
+    (await p.textContent('.rec-cliente-card')).includes('Rodrigo Alva') && (await p.locator('.rec-turno-card').count()) > 0);
 
-  await llenar(p, {}); await p.click('#btn-reserva');
-  await p.waitForFunction(() => document.getElementById('r-resultado').textContent.includes('guardada'));
-  chk('8. Reserva válida se guarda (estado pendiente)',
-    await p.evaluate(() => window.__mock.db.citas.length === 3 && window.__mock.db.citas[2].estado_asistencia === 'pendiente'));
+  chk('5. Sin elegir turno no hay botón de cobrar', (await p.getByRole('button', { name: /y reservar/ }).count()) === 0);
+  await p.locator('.rec-turno-card:not([disabled])').first().click();
+  await p.getByRole('button', { name: /y reservar/ }).waitFor();
+  const total = (await p.textContent('.rec-total strong')).trim();
+  chk('6. Elegir turno muestra el total y el botón de cobro con el mismo monto',
+    /^S\/ \d+\.\d{2}$/.test(total) && (await p.getByRole('button', { name: /y reservar/ }).textContent()).includes(total));
+
+  await p.getByRole('button', { name: 'Yape' }).click();
+  chk('7. Medio de pago seleccionable (Yape queda activo)',
+    (await p.getByRole('button', { name: 'Yape' }).getAttribute('class')).includes('rec-medio-act'));
+
+  await p.getByRole('button', { name: /y reservar/ }).click();
+  await p.waitForSelector('.rec-exito');
+  chk('8. Reserva cobrada: +1 cita (pendiente, pagada, de recepción) y un pago de sauna con el medio elegido',
+    (await p.textContent('.rec-exito')).includes('Reserva cobrada') &&
+    await p.evaluate((antes) => {
+      const { citas, pagos } = window.__mock.db; const c = citas[citas.length - 1];
+      return citas.length === antes + 1 && c.estado_asistencia === 'pendiente' && c.estado_pago === 'pagada' && c.origen === 'recepcion' &&
+        pagos.some((g) => g.id_cita === c.id_cita && g.concepto === 'sauna' && g.medio === 'yape');
+    }, citasAntes));
   await p.screenshot({ path: carpeta + '/03_reserva_guardada.png' });
 
   await p.click('[data-tab="agenda"]');
   await p.waitForSelector('.tabla-wrap table');
-  chk('9. Agenda del día muestra citas de hoy', (await p.locator('.tabla-wrap tbody tr').count()) === 2);
+  const idNueva = await p.evaluate(() => window.__mock.db.citas[window.__mock.db.citas.length - 1].id_cita);
+  chk('9. Agenda del día muestra citas de hoy (incluye c2) y no la reserva hecha para mañana',
+    (await p.locator('.tabla-wrap tbody tr').count()) >= 2 && (await p.locator('tr[data-id="c2"]').count()) === 1 &&
+    (await p.locator(`tr[data-id="${idNueva}"]`).count()) === 0);
   chk('10. Recepcionista no ve botón Eliminar', (await p.locator('[data-accion="eliminar"]').count()) === 0);
   await p.screenshot({ path: carpeta + '/04_agenda.png' });
 
@@ -182,7 +210,7 @@ function manana(h) {
   chk('24. Aprobar solicitud crea la cita en la agenda', (await p.textContent('.tabla-wrap tbody')).includes('Cliente Demo 31'));
   await p.screenshot({ path: carpeta + '/11_solicitud_aprobada.png' });
 
-  // --- Migración 3: riesgo, «Canceló», log de tiempo, aforo, duplicados y gráficos ---
+  // --- Migración 3: riesgo, «Canceló», log de tiempo (el aforo y los duplicados de recepción están en tests/e2e/recepcion.mjs) ---
   const q = await nuevaPagina();
   await login(q, 'recepcion@demo.test', 'demo123');
   await q.waitForSelector('.tabs');
@@ -213,56 +241,11 @@ function manana(h) {
   await q.locator('tr[data-id="c2"] [data-accion="cancelo"]').click();
   await q.waitForFunction(() => window.__mock.db.citas.find(c => c.id_cita === 'c2').estado_asistencia === 'cancelo');
   const reg = await q.evaluate(() => window.__mock.db.citas.find(c => c.id_cita === 'c2'));
-  chk('28. «Canceló» se guarda y se muestra', (await q.locator('tr[data-id="c2"] .etq.cancelo').textContent()).includes('Canceló'));
+ 
+   chk('28. «Canceló» se guarda y se muestra',
+     (await q.locator('tr[data-id="c2"] .etq.cancelo').textContent({ timeout: 3000 }).catch(() => '')).includes('Canceló'));
   chk('29. Log de tiempo: guarda marcada_en y segundos_registro (número ≥ 0)',
     !!reg.marcada_en && typeof reg.segundos_registro === 'number' && reg.segundos_registro >= 0);
-
-  // Aforo: en el mock el sauna de Túpac Amaru admite 2 por franja
-  await q.click('[data-tab="registrar"]');
-  const reservar = async (dni) => {
-    await llenar(q, { nombre: 'Aforo Prueba Uno', dni, telefono: '9000000' + dni.slice(-2), fecha: manana(20) });
-    await q.click('#btn-reserva');
-  };
-  await reservar('70000091');
-  await q.waitForFunction(() => document.getElementById('r-resultado').textContent.includes('guardada'));
-  await llenar(q, { dni: '70000092', nombre: 'Aforo Prueba Dos', telefono: '900000092', fecha: manana(20) });
-  await q.waitForSelector('#r-cupos');
-  chk('30. Formulario muestra los cupos libres de la franja', (await q.textContent('#r-cupos')).includes('1 de 2'));
-  await q.click('#btn-reserva');
-  await q.waitForFunction(() => document.getElementById('r-resultado').textContent.includes('guardada'));
-  const antesAforo = await q.evaluate(() => window.__mock.db.citas.length);
-  await llenar(q, { dni: '70000093', nombre: 'Aforo Prueba Tres', telefono: '900000093', fecha: manana(20) });
-  await q.waitForFunction(() => (document.getElementById('r-cupos') || {}).textContent?.includes('Aforo máximo'));
-  await q.click('#btn-reserva');
-  await q.waitForFunction(() => document.querySelector('[data-error="fecha_hora"]').textContent.includes('Aforo máximo'));
-  chk('31. Aforo lleno: bloquea la reserva con el mensaje y no guarda',
-    (await q.evaluate(() => window.__mock.db.citas.length)) === antesAforo);
-  await q.screenshot({ path: carpeta + '/13_aforo_lleno.png' });
-
-  // Cancelar libera el cupo
-  await q.click('[data-tab="agenda"]');
-  const dm2 = new Date(); dm2.setDate(dm2.getDate() + 1);
-  const p2 = (n) => String(n).padStart(2, '0');
-  await q.fill('#a-fecha', `${dm2.getFullYear()}-${p2(dm2.getMonth() + 1)}-${p2(dm2.getDate())}`);
-  await q.waitForSelector('.tabla-wrap tbody tr');
-  await q.locator('.tabla-wrap tbody tr').first().locator('[data-accion="cancelo"]').click();
-  await q.waitForFunction(() => window.__mock.db.citas.filter(c => c.estado_asistencia === 'cancelo').length >= 2);
-  await q.click('[data-tab="registrar"]');
-  await llenar(q, { dni: '70000093', nombre: 'Aforo Prueba Tres', telefono: '900000093', fecha: manana(20) });
-  await q.click('#btn-reserva');
-  await q.waitForFunction(() => document.getElementById('r-resultado').textContent.includes('guardada'));
-  chk('32. Cancelar una cita libera el cupo y permite reservar',
-    (await q.evaluate(() => window.__mock.db.citas.length)) === antesAforo + 1);
-
-  // Duplicado: mismo cliente, servicio y hora
-  await llenar(q, { dni: '70000093', nombre: 'Aforo Prueba Tres', telefono: '900000093', servicio: 'gimnasio', fecha: manana(9) });
-  await q.click('#btn-reserva');
-  await q.waitForFunction(() => document.getElementById('r-resultado').textContent.includes('guardada'));
-  await llenar(q, { dni: '70000093', nombre: 'Aforo Prueba Tres', telefono: '900000093', servicio: 'gimnasio', fecha: manana(9) });
-  await q.click('#btn-reserva');
-  await q.waitForSelector('#aviso');
-  chk('33. Reserva duplicada (mismo cliente, servicio y hora) se rechaza con mensaje claro',
-    (await q.textContent('#aviso')).includes('ya tiene una reserva'));
 
   // Panel con gráficos (administrador)
   const a = await nuevaPagina();
@@ -308,7 +291,7 @@ function manana(h) {
   const carpetaRoles = path.join(aqui, 'e2e');
   for (const f of fs.readdirSync(carpetaRoles).filter((n) => n.endsWith('.mjs')).sort()) {
     const { correr } = await import(pathToFileURL(path.join(carpetaRoles, f)).href);
-    await correr({ browser, url, login, nuevaPagina, chk, carpeta });
+    await correr({ browser, url, login, nuevaPagina, chk, carpeta, irASauna });
   }
 
   await browser.close(); server.close();
