@@ -1,10 +1,16 @@
 // Dueño: Abel (rol cliente). Aquí se declaran las pantallas del cliente.
-import MisReservas from './MisReservas';
+// web/src/features/cliente/index.js
+import Registro from './Registro.jsx';
+import IngresarCodigo from './IngresarCodigo.jsx';
+import MiMembresia from './MiMembresia.jsx';
+import MisReservas from './MisReservas.jsx';
 
 export const modulos = [
-  { id: 'mis-reservas', texto: 'Mis reservas', icono: 'agenda', roles: ['cliente'], Componente: MisReservas }
-  // Abel: agrega aquí tus pantallas nuevas (ej.: ReservarSauna, MiMembresia, IngresarCodigo).
+  { id: 'ingresar-codigo', texto: 'Check-in Gimnasio', icono: 'solicitudes', roles: ['cliente'], Componente: IngresarCodigo },
+  { id: 'mi-membresia', texto: 'Mi Membresía', icono: 'clientes', roles: ['cliente'], Componente: MiMembresia },
+  { id: 'mis-reservas', texto: 'Mis Reservas', icono: 'agenda', roles: ['cliente'], Componente: MisReservas }
 ];
 
-// Páginas del cliente sin sesión (ej.: registro): '#/registro': RegistroCliente
-export const rutasPublicas = {};
+export const rutasPublicas = {
+  '#/registro': Registro
+};
