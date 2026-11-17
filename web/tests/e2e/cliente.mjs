@@ -47,7 +47,7 @@ export async function correr({ url, nuevaPagina, login, chk }) {
   // Escena 2: Ruta pública de autoregistro y validación de formulario vacío (HU-C1)
   {
     const p = await nuevaPagina();
-    await p.goto(`${url}/#/registro`);
+    await p.goto(`${url}#/registro`);
     await p.waitForSelector('.cli-form');
 
     await p.click('button:has-text("Completar Registro")');
