@@ -26,7 +26,7 @@ function validarCita(n, excepto) {
 }
 MOCKS.forEach((x) => Object.assign(USERS, x.usuarios || {}));
 Object.keys(USERS).forEach((e) => db.perfiles.push({ id: USERS[e].id, ...USERS[e].perfil }));
-let sesion = null; let redCaida = false; let seq = 1;
+let sesion = null; let redCaida = false; let seq = 1000;
 
 const hoy = (h) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.toISOString(); };
 db.clientes.push({ id_cliente: 'k1', nombre: 'Cliente Demo 01', dni: '70000001', telefono: '900000001' });
@@ -60,7 +60,6 @@ function builder(tabla) {
     return new Promise((resolve) => {
       if (redCaida) return resolve({ data: null, error: new Error('Failed to fetch') });
       let filas = db[tabla].filter((r) => q.filtros.every((f) => f(r)));
-      
       if (q.op === 'insert') {
         const nuevo = { ...q.payload };
         if (tabla === 'clientes') nuevo.id_cliente = `k${++seq}`;
@@ -73,18 +72,8 @@ function builder(tabla) {
         db[tabla].push(nuevo);
         return resolve(q.single ? { data: nuevo, error: null } : { data: null, error: null });
       }
-
-      if (q.op === 'update') {
-        filas.forEach((r) => Object.assign(r, q.payload));
-        const resultado = q.sel ? filas : null;
-        return resolve({ data: resultado, error: null });
-      }
-
-      if (q.op === 'delete') {
-        db[tabla] = db[tabla].filter((r) => !filas.includes(r));
-        return resolve({ data: null, error: null });
-      }
-
+           if (q.op === 'update') { filas.forEach((r) => Object.assign(r, q.payload)); return resolve({ data: filas.map((r) => ({ ...r })), error: null }); }
+      if (q.op === 'delete') { db[tabla] = db[tabla].filter((r) => !filas.includes(r)); return resolve({ data: null, error: null }); }
       if (q.orden) filas.sort((a, c) => (a[q.orden] < c[q.orden] ? -1 : 1));
       if (tabla === 'citas' && q.sel.includes('clientes('))
         filas = filas.map((r) => ({ ...r, clientes: db.clientes.find((c) => c.id_cliente === r.id_cliente) }));
@@ -106,6 +95,7 @@ export function createClient() {
         sesion = { user: { id: u.id } };
         return Promise.resolve({ data: { user: sesion.user }, error: null });
       },
+      // Alta de cuenta (registro del cliente): crea el usuario de Auth sin perfil; el perfil lo crea registrar_cliente.
       signUp: ({ email, password }) => {
         if (redCaida) return Promise.resolve({ data: null, error: new Error('Failed to fetch') });
         if (USERS[email]) return Promise.resolve({ data: null, error: new Error('User already registered') });
