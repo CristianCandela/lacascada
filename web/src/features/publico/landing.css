@@ -156,3 +156,18 @@
   .pub-aforo-relleno { animation: none; }
   .pub-btn { transition: none; }
 }
+
+/* ----- Pantalla de aforo en vivo (#/aforo) ----- */
+.pub-aforo-main { padding: 40px 0 64px; }
+.pub-aforo-main h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 600; }
+.pub-aforo-sub { margin-top: 10px; color: var(--suave); line-height: 1.55; max-width: 44em; }
+.pub-aforo-sedes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 24px; margin-top: 28px; }
+.pub-aforo-sede { border: 1px solid var(--borde, #dfe5ea); border-radius: 16px; padding: 24px; background: #fff; display: grid; gap: 18px; align-content: start; }
+.pub-aforo-sede-cab { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.pub-aforo-sede-cab h2 { font-size: 1.3rem; font-weight: 600; }
+.pub-aforo-sede-cab p { margin-top: 4px; color: var(--suave); font-size: .9rem; }
+.pub-aforo-pie { margin-top: 32px; color: var(--suave); }
+.pub-aforo-pie a { color: var(--azul-fuerte); font-weight: 600; }
+.pub .pub-aforo-sub { margin-top: 10px; }
+.pub .pub-aforo-pie { margin-top: 32px; }
+.pub .pub-aforo-sede-cab p { margin-top: 4px; }

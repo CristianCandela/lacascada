@@ -148,7 +148,7 @@ export default function Landing({ tieneRegistro = false }) {
                 </div>
               )}
               {falloAforo && <p className="pub-nota pub-nota-error" role="status">No pudimos cargar el aforo. Se reintentará en unos segundos.</p>}
-              {actualizado && !falloAforo && <p className="pub-nota">Se actualiza cada 30 segundos.</p>}
+              {actualizado && !falloAforo && <p className="pub-nota">Se actualiza cada 30 segundos. <a href="#/aforo">Ver en pantalla completa</a></p>}
             </div>
           </div>
         </section>
