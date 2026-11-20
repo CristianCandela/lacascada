@@ -1,9 +1,14 @@
 -- =====================================================================
--- Seed 05:  4 días de uso (100 citas) 
+-- DATOS INICIALES DEL APF2 (paso 1 de la estandarización) — 100 % SINTÉTICOS, fechas fijas.
+--   Parte A: 43 clientes ficticios + 113 citas con estado final (6–9 y 14 de octubre de 2026):
+--            86 asistió, 21 no asistió, 6 canceló  →  107 entran al dataset del APF3 (21 positivos, 19,6 %).
+-- Antes borra los datos de demostración anteriores (seeds viejos y seed 07). CONSERVA los clientes que tienen cuenta
+-- (id_usuario no nulo), p. ej. el cliente de prueba. Se puede ejecutar varias veces.
 -- =====================================================================
 
-delete from public.clientes
-where fecha_consentimiento = timestamptz '2026-10-05 10:00-05' or dni like '7100%';
+-- 0. Limpieza de datos de demostración (los clientes con cuenta no se tocan)
+delete from public.solicitudes;
+delete from public.clientes where id_usuario is null;
 
 insert into public.clientes (nombre, dni, telefono, consentimiento, fecha_consentimiento)
 select v.nombre, v.dni, v.tel, true, timestamptz '2026-10-05 10:00-05'
@@ -175,8 +180,46 @@ from (values
 join public.clientes c on c.dni = v.dni
 cross join lateral (select (v.dia || ' ' || v.hora || '-05')::timestamptz as ts) t;
 
--- Verificación (debe dar 100 citas y 20 no-shows)
-select count(*) as citas_sinteticas,
-       count(*) filter (where estado_asistencia = 'no_asistio') as no_shows
-from public.citas c join public.clientes k using (id_cliente)
-where k.fecha_consentimiento = timestamptz '2026-10-05 10:00-05';
+-- Citas del 14 de octubre con estado final (13 de las 30 de la agenda del día).
+-- Hora de referencia: 14/10/2026 12:00 (Lima). off = minutos respecto a esa hora.
+insert into public.citas
+  (id_cliente, servicio, sede, fecha_hora_cita, fecha_hora_registro, estado_asistencia,
+   marcada_en, segundos_registro, recordatorio_enviado_en, confirmada_en)
+select c.id_cliente,
+       case v.serv when 'S' then 'sauna' else 'gimnasio' end,
+       case v.sede when 'AN' then 'Túpac Amaru' else 'Santa Rosa' end,
+       b.h + make_interval(mins => v.off),
+       b.h + make_interval(mins => v.off) - make_interval(mins => v.reg),
+       case v.est when 'A' then 'asistio' when 'N' then 'no_asistio' else 'cancelo' end,
+       b.h + make_interval(mins => v.off + v.marca),
+       v.seg,
+       case when v.rec is null then null else b.h + make_interval(mins => v.rec) end,
+       case when v.conf is null then null else b.h + make_interval(mins => v.conf) end
+from (select timestamptz '2026-10-14 12:00-05' as h) b,
+(values
+  ('67483635', 'G', 'AN', -300, 'A', 95, 4, 6, null::int, null::int),
+  ('57763412', 'G', 'AN', -300, 'A', 180, 2, 5, null::int, null::int),
+  ('54502179', 'S', 'AN', -270, 'A', 180, 3, 7, -330, -318),
+  ('67245192', 'G', 'SR', -240, 'A', 600, 5, 5, null::int, null::int),
+  ('48236643', 'G', 'AN', -240, 'A', 320, 1, 6, -300, -290),
+  ('71977355', 'S', 'SR', -210, 'A', 320, 6, 8, null::int, null::int),
+  ('41485273', 'G', 'AN', -180, 'N', 180, 20, 5, -240, null::int),
+  ('61019362', 'S', 'AN', -150, 'A', 320, 2, 6, null::int, null::int),
+  ('65474648', 'G', 'SR', -120, 'C', 600, -45, 4, null::int, null::int),
+  ('46951292', 'G', 'AN', -120, 'A', 95, 3, 5, null::int, null::int),
+  ('72083463', 'S', 'AN', -90, 'A', 320, 4, 7, -150, -140),
+  ('59577861', 'G', 'AN', -60, 'A', 180, 2, 6, null::int, null::int),
+  ('66788231', 'S', 'SR', -60, 'A', 600, 5, 5, null::int, null::int)
+) as v(dni, serv, sede, off, est, reg, marca, seg, rec, conf)
+join public.clientes c on c.dni = v.dni;
+
+-- Verificación: 43 clientes · 113 citas · 86 asistió · 21 no asistió · 6 canceló · 107 en el dataset
+select (select count(*) from public.clientes where dni not like '7200%' and id_usuario is null) as clientes_apf2,
+       count(*) as citas,
+       count(*) filter (where estado_asistencia = 'asistio')    as asistio,
+       count(*) filter (where estado_asistencia = 'no_asistio') as no_asistio,
+       count(*) filter (where estado_asistencia = 'cancelo')    as cancelo,
+       count(*) filter (where estado_asistencia in ('asistio','no_asistio')) as en_dataset,
+       round(100.0 * count(*) filter (where estado_asistencia = 'no_asistio')
+             / nullif(count(*) filter (where estado_asistencia in ('asistio','no_asistio')), 0), 1) as pct_no_show
+from public.citas;
