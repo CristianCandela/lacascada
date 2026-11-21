@@ -10,7 +10,7 @@ import "./CitasPorRecordar.css";
 function construirEnlaceWhatsApp(cita) {
   const telefonoRaw = (cita.clientes?.telefono || "").replace(/\D/g, "");
   const telefonoPe = telefonoRaw.length === 9 ? `51${telefonoRaw}` : telefonoRaw;
-  const nombre = cita.clientes?.nombres || "estimado(a) cliente";
+  const nombre = cita.clientes?.nombre || "estimado(a) cliente";
   const fecha = new Date(cita.fecha_hora_cita).toLocaleString("es-PE", {
     weekday: "short",
     day: "2-digit",
@@ -240,7 +240,7 @@ export default function CitasPorRecordar({ onAviso }) {
 
                     <td>
                       <strong>
-                        {cita.clientes?.nombres} {cita.clientes?.apellidos}
+                        {cita.clientes?.nombre}
                       </strong>
                       <div className="meta-sub">
                         Tel: {cita.clientes?.telefono || "Sin número"} · Faltas 30d:{" "}

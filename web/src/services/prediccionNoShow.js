@@ -44,7 +44,7 @@ export async function obtenerCitasPriorizadas() {
       recordatorio_enviado_en,
       confirmada_en,
       estado_asistencia,
-      clientes ( nombres, apellidos, telefono )
+      clientes ( nombre, telefono )
     `)
     .eq("estado_asistencia", "pendiente")
     .order("fecha_hora_cita", { ascending: true });
@@ -52,13 +52,14 @@ export async function obtenerCitasPriorizadas() {
   if (errCitas) throw errCitas;
   if (!citas || citas.length === 0) return [];
 
-  const { data: riesgos, error: errRiesgo } = await supabase.rpc("riesgo_clientes");
+  const idsClientes = [...new Set(citas.map((c) => c.id_cliente))];
+  const { data: riesgos, error: errRiesgo } = await supabase.rpc("riesgo_clientes", { p_ids: idsClientes });
   if (errRiesgo) throw errRiesgo;
 
   const mapaHistorial = new Map(
     (riesgos || []).map((r) => [
       r.id_cliente,
-      { citas_cerradas: r.citas_cerradas, no_shows: r.no_shows },
+      { citas_cerradas: r.total, no_shows: r.no_asistio },
     ])
   );
 

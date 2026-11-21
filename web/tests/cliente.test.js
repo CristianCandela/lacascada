@@ -74,10 +74,12 @@ test('CLI-LOGICA-4: Cálculo de días restantes de membresía (HU-C5)', () => {
   assert.equal(calcularDiasRestantes(pasada), 0);
 });
 
+const FECHA_FUTURA = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10) + 'T10:00:00';
+
 test('CLI-LOGICA-5: Validación de reglas de negocio al reservar sauna (HU-C3)', () => {
   // Intento de reserva sin membresía activa
   const sinMembresia = validarReservaSauna({
-    fechaHora: '2026-11-20T10:00:00',
+    fechaHora: FECHA_FUTURA,
     membresiaVigente: false
   });
   assert.equal(sinMembresia.valido, false);
@@ -85,7 +87,7 @@ test('CLI-LOGICA-5: Validación de reglas de negocio al reservar sauna (HU-C3)',
 
   // Intento exitoso con membresía activa
   const conMembresia = validarReservaSauna({
-    fechaHora: '2026-11-20T10:00:00',
+    fechaHora: FECHA_FUTURA,
     membresiaVigente: true
   });
   assert.equal(conMembresia.valido, true);
