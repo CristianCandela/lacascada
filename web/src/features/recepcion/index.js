@@ -9,6 +9,7 @@ import RegistroAsistido from './RegistroAsistido';
 import Renovaciones from './Renovaciones';
 import Alertas from './Alertas';
 import ResumenDia from './ResumenDia';
+import CitasPorRecordar from './CitasPorRecordar';
 
 const PERSONAL = ['recepcionista', 'administrador'];
 
@@ -22,6 +23,6 @@ export const modulos = [
   { id: 'registro', texto: 'Registro asistido', icono: 'usuarios', roles: PERSONAL, Componente: RegistroAsistido },
   { id: 'renovaciones', texto: 'Renovaciones', icono: 'refrescar', roles: PERSONAL, Componente: Renovaciones },
   { id: 'alertas', texto: 'Alertas', icono: 'alerta', roles: PERSONAL, Componente: Alertas },
+  { id: 'citas-recordar', texto: 'Citas por recordar', icono: 'whatsapp', roles: PERSONAL, Componente: CitasPorRecordar },
   { id: 'resumen', texto: 'Resumen del día', icono: 'reloj', roles: PERSONAL, Componente: ResumenDia },
-   // Leticia: agrega aquí tus pantallas nuevas (ej.: CodigoLocal, Pagos). Crea el componente en esta carpeta.
 ];
