@@ -1,0 +1,29 @@
+{
+  "filas_dataset": 950,
+  "positivos": 189,
+  "tasa_no_show": 0.1989,
+  "train/test": [
+    665,
+    285
+  ],
+  "modelo_seleccionado": "Gradient Boosting",
+  "umbral": 0.22,
+  "metricas_test_modelo": {
+    "Accuracy": 0.723,
+    "Precision": 0.347,
+    "Recall": 0.439,
+    "F1": 0.388,
+    "F2": 0.417,
+    "ROC-AUC": 0.68,
+    "PR-AUC": 0.372
+  },
+  "metricas_test_heuristica_mvp": {
+    "Precision": 0.359,
+    "Recall": 0.246,
+    "F1": 0.292,
+    "F2": 0.262
+  },
+  "carga_recordatorios_modelo": 0.253,
+  "tiempo_prediccion_ms": 10.7,
+  "random_state": 42
+}

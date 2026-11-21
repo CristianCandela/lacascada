@@ -1,0 +1,20 @@
+[
+  {
+    "id_cita": "ejemplo-001",
+    "prob_no_show": 0.3231,
+    "umbral": 0.22,
+    "pred_no_show": 1,
+    "nivel_riesgo": "alto",
+    "accion_sugerida": "Enviar recordatorio por WhatsApp (wa.me) y pedir confirmación; priorizar en «Citas por recordar»",
+    "version_modelo": "apf3-g04-v1"
+  },
+  {
+    "id_cita": "ejemplo-002",
+    "prob_no_show": 0.0983,
+    "umbral": 0.22,
+    "pred_no_show": 0,
+    "nivel_riesgo": "bajo",
+    "accion_sugerida": "Sin acción adicional",
+    "version_modelo": "apf3-g04-v1"
+  }
+]
