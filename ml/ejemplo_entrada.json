@@ -1,0 +1,30 @@
+[
+  {
+    "id_cita": "ejemplo-001",
+    "id_cliente": "uuid-cliente-A",
+    "servicio": "sauna",
+    "sede": "Túpac Amaru",
+    "fecha_hora_cita": "2026-10-24T23:30:00+00:00",
+    "fecha_hora_registro": "2026-10-16T15:00:00+00:00",
+    "recordatorio_enviado_en": null,
+    "confirmada_en": null,
+    "historial_30d": {
+      "citas_cerradas": 3,
+      "no_shows": 2
+    }
+  },
+  {
+    "id_cita": "ejemplo-002",
+    "id_cliente": "uuid-cliente-B",
+    "servicio": "gimnasio",
+    "sede": "Santa Rosa",
+    "fecha_hora_cita": "2026-10-20T12:00:00+00:00",
+    "fecha_hora_registro": "2026-10-20T07:00:00+00:00",
+    "recordatorio_enviado_en": "2026-10-20T08:30:00+00:00",
+    "confirmada_en": "2026-10-20T09:10:00+00:00",
+    "historial_30d": {
+      "citas_cerradas": 0,
+      "no_shows": 0
+    }
+  }
+]

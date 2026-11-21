@@ -1,0 +1,6 @@
+Modelo,Accuracy,Precision,Recall,F1,F2,ROC-AUC,PR-AUC
+Línea base 1: siempre «asistirá»,0.8,0.0,0.0,0.0,0.0,0.5,0.2
+Línea base 2: regla heurística del MVP,0.7614,0.359,0.2456,0.2917,0.2622,,
+Regresión logística,0.6912,0.2817,0.3509,0.3125,0.3344,0.666,0.3556
+Árbol de decisión,0.6807,0.2875,0.4035,0.3358,0.3734,0.6327,0.2937
+Gradient Boosting (seleccionado),0.7228,0.3472,0.4386,0.3876,0.4167,0.6802,0.3725
