@@ -93,12 +93,14 @@ export function turnosDelDia(offset = 0, ahora = new Date(), desde = 6, hasta = 
   }
   return lista;
 }
-// ---- Pagos (membresía y pase del día) ----
-// Planes de ejemplo. Más adelante vendrán de la tabla `planes` (CONTRATO).
+// Planes registrados en Supabase.
 export const PLANES = [
-  { id_plan: 'p1', nombre: 'Mensual', dias: 30, precio: 160 },
-  { id_plan: 'p2', nombre: 'Trimestral', dias: 90, precio: 380 },
-  { id_plan: 'p3', nombre: 'Semestral', dias: 180, precio: 680 }
+  {
+    id_plan: 'c11c0cfb-773e-4a78-b8f6-63c4a2ea23b8',
+    nombre: 'Plan general',
+    dias: 30,
+    precio: 150
+  }
 ];
 export const MOTIVOS_ANULACION = [
   'Error al registrar el cobro',
