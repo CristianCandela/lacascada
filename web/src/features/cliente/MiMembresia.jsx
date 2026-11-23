@@ -1,36 +1,86 @@
-// web/src/features/cliente/MiMembresia.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { formatearFechaPe, etiquetaEstadoMembresia } from './logica';
 import './estilos.css';
 
+const METODOS_PAGO = [
+  { id: 'visa', etiqueta: 'Visa' },
+  { id: 'yape', etiqueta: 'Yape' },
+  { id: 'plin', etiqueta: 'Plin' }
+];
+
 export default function MiMembresia({ onAviso }) {
   const [membresia, setMembresia] = useState(null);
+  const [planes, setPlanes] = useState([]);
+  const [planSeleccionado, setPlanSeleccionado] = useState('');
+  const [metodoPago, setMetodoPago] = useState('visa');
   const [visitas, setVisitas] = useState([]);
   const [cargando, setCargando] = useState(true);
+  const [pagando, setPagando] = useState(false);
+
+  const cargarDatos = useCallback(async () => {
+    setCargando(true);
+    try {
+      const [resMembresia, resVisitas, resPlanes] = await Promise.all([
+        supabase.rpc('mi_membresia'),
+        supabase.rpc('mis_visitas', { p_limite: 20 }),
+        supabase.from('planes').select('*')
+      ]);
+
+      const falla = [resMembresia, resVisitas, resPlanes].find((r) => r.error);
+      if (falla) throw falla.error;
+
+      if (resMembresia.data) setMembresia(resMembresia.data);
+      setVisitas(Array.isArray(resVisitas.data) ? resVisitas.data : []);
+      const activos = (resPlanes.data || []).filter((p) => p.activo !== false);
+      setPlanes(activos);
+      if (activos.length) {
+        setPlanSeleccionado((prev) => prev || activos[0].id_plan);
+      }
+    } catch (err) {
+      if (onAviso) onAviso(err.message || 'No se pudo cargar tu membresía.', 'error');
+    } finally {
+      setCargando(false);
+    }
+  }, [onAviso]);
 
   useEffect(() => {
-    async function cargarDatos() {
-      setCargando(true);
-      try {
-        const [resMembresia, resVisitas] = await Promise.all([
-          supabase.rpc('mi_membresia'),
-          supabase.rpc('mis_visitas', { p_limite: 20 })
-        ]);
-
-        const falla = [resMembresia, resVisitas].find((r) => r.error);
-        if (falla) throw falla.error;
-
-        if (resMembresia.data) setMembresia(resMembresia.data);
-        setVisitas(Array.isArray(resVisitas.data) ? resVisitas.data : []);
-      } catch (err) {
-        if (onAviso) onAviso(err.message || 'No se pudo cargar tu membresía.', 'error');
-      } finally {
-        setCargando(false);
-      }
-    }
     cargarDatos();
-  }, [onAviso]);
+  }, [cargarDatos]);
+
+  const ejecutarPagoDirecto = async (idPlan, medio) => {
+    if (pagando) return;
+    if (membresia?.vigente) {
+      if (onAviso) onAviso('Ya tienes una membresía vigente. Solo se permite 1 membresía activa.', 'error');
+      return;
+    }
+
+    const planAUsar = idPlan || planSeleccionado || planes[0]?.id_plan;
+    const medioAUsar = medio || metodoPago || 'visa';
+    if (!planAUsar) return;
+
+    setPagando(true);
+    try {
+      const { data, error } = await supabase.rpc('pagar_membresia', {
+        p_id_plan: planAUsar,
+        p_medio: medioAUsar
+      });
+      if (error) throw error;
+      if (!data?.ok) {
+        if (onAviso) onAviso(data?.motivo || 'No se pudo procesar el pago.', 'error');
+        return;
+      }
+      const etiquetaMedio = METODOS_PAGO.find((m) => m.id === medioAUsar)?.etiqueta || medioAUsar.toUpperCase();
+      if (onAviso) {
+        onAviso(`Membresía "${data.plan}" activada con ${etiquetaMedio} (${data.inicio} al ${data.fin}).`, 'exito');
+      }
+      await cargarDatos();
+    } catch (err) {
+      if (onAviso) onAviso(err.message || 'No se pudo procesar el pago.', 'error');
+    } finally {
+      setPagando(false);
+    }
+  };
 
   const diasRestantes = membresia?.dias_restantes ?? 0;
   const porVencer = Boolean(membresia?.vigente && diasRestantes <= 7);
@@ -39,8 +89,8 @@ export default function MiMembresia({ onAviso }) {
     <div className="cli-contenedor">
       <div className="pag-cab">
         <div>
-          <h1>Mi Membresía y Visitas</h1>
-          <p className="ayuda">Consulta el estado actual de tu plan e historial de asistencias.</p>
+          <h1>Membresía de Gimnasio y Visitas</h1>
+          <p className="ayuda">La membresía aplica al ingreso al gimnasio; el sauna funciona por reserva de turno.</p>
         </div>
       </div>
 
@@ -72,13 +122,59 @@ export default function MiMembresia({ onAviso }) {
 
             {porVencer && (
               <p className="cli-alerta-aviso" role="alert">
-                Aviso: Tu membresía vence en {diasRestantes} {diasRestantes === 1 ? 'día' : 'días'}. Acércate a recepción para renovarla.
+                Aviso: Tu membresía vence en {diasRestantes} {diasRestantes === 1 ? 'día' : 'días'}.
               </p>
             )}
           </div>
         ) : (
           <p className="ayuda">No se encontró información de membresía.</p>
         )}
+
+        <div className="cli-pago-box">
+          <h3>Pagar Membresía (máximo 1 vigente)</h3>
+          {membresia?.vigente ? (
+            <p className="ayuda">Ya cuentas con una membresía vigente. No puedes pagar otra membresía hasta que venza la actual.</p>
+          ) : (
+            <div className="cli-form-reserva">
+              <label className="cli-label" htmlFor="cli-plan-select">Plan a pagar:</label>
+              <select
+                id="cli-plan-select"
+                value={planSeleccionado}
+                onChange={(e) => setPlanSeleccionado(e.target.value)}
+                className="cli-input"
+              >
+                {planes.map((p) => (
+                  <option key={p.id_plan} value={p.id_plan}>
+                    {p.nombre} ({p.dias} días — S/ {Number(p.precio).toFixed(2)})
+                  </option>
+                ))}
+              </select>
+
+              <label className="cli-label" htmlFor="cli-medio-select">Opción de pago:</label>
+              <select
+                id="cli-medio-select"
+                value={metodoPago}
+                onChange={(e) => setMetodoPago(e.target.value)}
+                className="cli-input"
+              >
+                {METODOS_PAGO.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.etiqueta}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                disabled={pagando || (!planSeleccionado && !planes.length)}
+                onClick={() => ejecutarPagoDirecto(planSeleccionado, metodoPago)}
+                className="cli-btn-primario"
+              >
+                {pagando ? 'Pagando...' : `Pagar Membresía (${METODOS_PAGO.find((m) => m.id === metodoPago)?.etiqueta || 'Visa'})`}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="tarjeta">

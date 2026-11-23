@@ -8,8 +8,15 @@ import { mock as publico } from '../src/features/publico/mock.js';
 import { hoyLima, sumarDias } from '../src/mock/comunes.js';
 
 function entorno() {
-  const db = { perfiles: [{ id: 'u1', nombre: 'Rec', rol: 'recepcionista' }, { id: 'u2', nombre: 'Adm', rol: 'administrador' }, { id: 'u3', nombre: 'Cli', rol: 'cliente' }],
-    clientes: [], citas: [], solicitudes: [], bitacora: [] };
+  const db = {
+    perfiles: [
+      { id: 'u1', nombre: 'Rec', rol: 'recepcionista' },
+      { id: 'u2', nombre: 'Adm', rol: 'administrador' },
+      { id: 'u3', nombre: 'Cli', rol: 'cliente' },
+      { id: 'u4', nombre: 'Dennis Mendoza', rol: 'cliente' }
+    ],
+    clientes: [], citas: [], solicitudes: [], bitacora: []
+  };
   let seq = 100; let yo = null;
   const ctx = { db, usuario: () => db.perfiles.find((p) => p.id === yo), nuevoId: (p) => `${p}${++seq}`, registrar: () => {} };
   [cliente, recepcion, admin, publico].forEach((m) => m.iniciar(db, ctx));
@@ -37,6 +44,21 @@ test('cliente de prueba: membresía vigente, check-in, salida y aforo', () => {
   assert.equal(llamar('u3', 'mis_visitas', { p_limite: 5 }).data.length, 1);
 });
 
+test('cliente: plan bimestral y máximo 1 membresía vigente', () => {
+  const { llamar, db } = entorno();
+  assert.ok(db.planes.some((p) => p.id_plan === 'p2' && p.dias === 60));
+  // u3 ya tiene membresía vigente: no puede pagar otra
+  const bloqueado = llamar('u3', 'pagar_membresia', { p_id_plan: 'p2' }).data;
+  assert.equal(bloqueado.ok, false);
+  // u4 (Dennis Mendoza) no tiene membresía vigente: puede pagar el plan bimestral
+  const pagoOk = llamar('u4', 'pagar_membresia', { p_id_plan: 'p2' }).data;
+  assert.equal(pagoOk.ok, true);
+  assert.equal(pagoOk.inicio, hoyLima());
+  assert.equal(pagoOk.fin, sumarDias(hoyLima(), 59));
+  // Una vez activa, tampoco puede pagar otra membresía
+  assert.equal(llamar('u4', 'pagar_membresia', { p_id_plan: 'p1' }).data.ok, false);
+});
+
 test('seguridad del mock: el cliente no usa funciones de personal y viceversa', () => {
   const { llamar } = entorno();
   assert.ok(llamar('u3', 'codigo_local_actual', { p_sede: 'Santa Rosa' }).error);
@@ -59,14 +81,14 @@ test('registro de cliente nuevo y vinculación por DNI', () => {
   const { llamar, db } = entorno();
   db.perfiles = db.perfiles.filter((p) => p.id !== 'u3');
   db.cuenta_nueva = 'u9';
-  assert.equal(llamar(null, 'registrar_cliente', { p_codigo_local: '999', p_nombre: 'Ana Prueba', p_dni: '50000001', p_telefono: '955555551', p_consentimiento: true }).data.ok, false);
-  const r = llamar(null, 'registrar_cliente', { p_codigo_local: '123456', p_nombre: 'Ana Prueba', p_dni: '50000001', p_telefono: '955555551', p_consentimiento: true }).data;
+  assert.equal(llamar(null, 'registrar_cliente', { p_nombre: '', p_dni: '50000001', p_telefono: '955555551', p_consentimiento: true }).data.ok, false);
+  const r = llamar(null, 'registrar_cliente', { p_nombre: 'Ana Prueba', p_dni: '50000001', p_telefono: '955555551', p_consentimiento: true }).data;
   assert.equal(r.ok, true);
   assert.ok(db.perfiles.some((p) => p.id === 'u9' && p.rol === 'cliente'));
   db.clientes.push({ id_cliente: 'kx', nombre: 'Existente', dni: '40000001', telefono: '944444444', estado: 'activo', id_usuario: null });
   db.cuenta_nueva = 'u10';
-  assert.match(llamar(null, 'registrar_cliente', { p_codigo_local: '123456', p_nombre: 'Otro', p_dni: '40000001', p_telefono: '900000000', p_consentimiento: true }).data.motivo, /no coinciden/);
-  assert.equal(llamar(null, 'registrar_cliente', { p_codigo_local: '123456', p_nombre: 'Otro', p_dni: '40000001', p_telefono: '944444444', p_consentimiento: true }).data.ok, true);
+  assert.match(llamar(null, 'registrar_cliente', { p_nombre: 'Otro', p_dni: '40000001', p_telefono: '900000000', p_consentimiento: true }).data.motivo, /no coinciden/);
+  assert.equal(llamar(null, 'registrar_cliente', { p_nombre: 'Otro', p_dni: '40000001', p_telefono: '944444444', p_consentimiento: true }).data.ok, true);
 });
 
 test('bloqueo tras 5 códigos incorrectos', () => {

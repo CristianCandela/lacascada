@@ -8,10 +8,10 @@ export default function Registro({ onAviso }) {
   const [form, setForm] = useState({
     email: '',
     password: '',
-    codigo_local: '',
     nombre: '',
     dni: '',
     telefono: '',
+    fechaNacimiento: '',
     consentimiento: false
   });
   const [errorForm, setErrorForm] = useState('');
@@ -61,14 +61,37 @@ export default function Registro({ onAviso }) {
       return;
     }
 
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.fechaNacimiento)) {
+      const msg = 'Ingresa tu fecha de nacimiento.';
+      setErrorForm(msg);
+      if (onAviso) onAviso(msg, 'error');
+      return;
+    }
+
+    const anioNac = Number(form.fechaNacimiento.slice(0, 4));
+    const anioActual = new Date().getFullYear();
+    if (anioNac > anioActual) {
+      const msg = 'El año de nacimiento no puede ser mayor al año actual.';
+      setErrorForm(msg);
+      if (onAviso) onAviso(msg, 'error');
+      return;
+    }
+
+    if (anioActual - anioNac < 18) {
+      const msg = 'Debes ser mayor de 18 años para registrarte (según tu año de nacimiento).';
+      setErrorForm(msg);
+      if (onAviso) onAviso(msg, 'error');
+      return;
+    }
+
     const validacion = validarDatosRegistro({
       email: emailLimpio,
       password: form.password,
       nombre: form.nombre,
       dni: form.dni,
       telefono: form.telefono,
-      consentimiento: form.consentimiento,
-      codigoLocal: form.codigo_local
+      fechaNacimiento: form.fechaNacimiento,
+      consentimiento: form.consentimiento
     });
 
     if (!validacion.valido) {
@@ -91,10 +114,10 @@ export default function Registro({ onAviso }) {
 
       // 2. Registrar o vincular los datos del cliente y crear su perfil
       const { data, error: rpcError } = await supabase.rpc('registrar_cliente', {
-        p_codigo_local: form.codigo_local.trim(),
         p_nombre: form.nombre.trim(),
         p_dni: form.dni.trim(),
         p_telefono: form.telefono.trim(),
+        p_fecha_nacimiento: form.fechaNacimiento,
         p_consentimiento: form.consentimiento
       });
       if (rpcError) throw rpcError;
@@ -117,10 +140,10 @@ export default function Registro({ onAviso }) {
       setForm({
         email: '',
         password: '',
-        codigo_local: '',
         nombre: '',
         dni: '',
         telefono: '',
+        fechaNacimiento: '',
         consentimiento: false
       });
       window.location.hash = '#/mis-reservas';
@@ -138,7 +161,7 @@ export default function Registro({ onAviso }) {
       <div className="pag-cab">
         <div>
           <h1>Registro de Cliente Nuevo</h1>
-          <p className="ayuda">Crea tu cuenta y regístrate con el código del local.</p>
+          <p className="ayuda">Crea tu cuenta para gestionar tus reservas y membresía.</p>
         </div>
       </div>
 
@@ -170,18 +193,6 @@ export default function Registro({ onAviso }) {
             placeholder="••••••"
             value={form.password}
             onChange={(e) => actualizarCampo('password', e.target.value)}
-          />
-
-          <label htmlFor="reg-codigo" className="cli-label">Código del local (6 dígitos):</label>
-          <input
-            id="reg-codigo"
-            type="text"
-            inputMode="numeric"
-            maxLength={6}
-            className="cli-input"
-            placeholder="Ingresa el código de recepción"
-            value={form.codigo_local}
-            onChange={(e) => actualizarCampo('codigo_local', e.target.value)}
           />
 
           <label htmlFor="reg-nombre" className="cli-label">Nombre Completo:</label>
@@ -219,6 +230,16 @@ export default function Registro({ onAviso }) {
             placeholder="900000100"
             value={form.telefono}
             onChange={(e) => actualizarCampo('telefono', e.target.value)}
+          />
+
+          <label htmlFor="reg-fecha-nac" className="cli-label">Fecha de nacimiento:</label>
+          <input
+            id="reg-fecha-nac"
+            type="date"
+            max={new Date().toISOString().slice(0, 10)}
+            className="cli-input"
+            value={form.fechaNacimiento}
+            onChange={(e) => actualizarCampo('fechaNacimiento', e.target.value)}
           />
 
           <label htmlFor="reg-consentimiento" className="cli-checkbox-label">

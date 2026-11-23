@@ -19,7 +19,10 @@ export const CODIGO_DEMO = '123456'; // código del local en el mock
 export function iniciarTablas(db) {
   if (db.planes) return;
   db.sedes = [{ sede: 'Túpac Amaru', abre: '06:00', cierra: '22:00' }, { sede: 'Santa Rosa', abre: '06:00', cierra: '22:00' }];
-  db.planes = [{ id_plan: 'p1', nombre: 'Plan general', dias: 30, precio: 150, activo: true }];
+  db.planes = [
+    { id_plan: 'p1', nombre: 'Plan general', dias: 30, precio: 150, activo: true },
+    { id_plan: 'p2', nombre: 'Plan bimestral', dias: 60, precio: 280, activo: true }
+  ];
   db.membresias = []; db.pagos = []; db.checkins = []; db.motivos_ausencia = []; db.intentos = [];
   const manana = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
   db.codigos_local = db.sedes.map((s, i) => ({ id_codigo: `cl${i}`, sede: s.sede, codigo: CODIGO_DEMO, vigente_hasta: manana }));
