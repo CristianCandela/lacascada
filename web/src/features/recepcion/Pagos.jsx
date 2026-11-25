@@ -10,7 +10,6 @@ import {
   tipoBusqueda,
   semaforoMembresia,
   textoMembresia,
-  PLANES,
   MOTIVOS_ANULACION,
   montoCobro,
   nuevoFin
@@ -48,7 +47,8 @@ export default function Pagos({ onAviso, textoInicial, onUsado }) {
   const [texto, setTexto] = useState('');
   const [cliente, setCliente] = useState(null);
   const [lista, setLista] = useState(null);
-  const [plan, setPlan] = useState(PLANES[0] || null);
+  const [planes, setPlanes] = useState([]);
+  const [plan, setPlan] = useState(null);
   const [medio, setMedio] = useState('efectivo');
   const [pagos, setPagos] = useState([]);
   const [anular, setAnular] = useState(null);
@@ -69,6 +69,19 @@ export default function Pagos({ onAviso, textoInicial, onUsado }) {
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  // Planes activos desde la base de datos: los que crea el administrador aparecen aquí.
+  const cargarPlanes = useCallback(async () => {
+    const r = await supabase.from('planes').select('*').eq('activo', true).order('precio');
+    if (!r.error && Array.isArray(r.data)) {
+      setPlanes(r.data);
+      setPlan((actual) => r.data.find((p) => p.id_plan === actual?.id_plan) || r.data[0] || null);
+    }
+  }, []);
+
+  useEffect(() => {
+    cargarPlanes();
+  }, [cargarPlanes]);
 
   // Si otra pantalla manda un cliente, lo busca automáticamente.
   const buscarEnviado = useCallback(async (t) => {
@@ -395,7 +408,7 @@ export default function Pagos({ onAviso, textoInicial, onUsado }) {
 
               {concepto === 'membresia' && (
                 <div className="rec-planes">
-                  {PLANES.map((p) => (
+                  {planes.map((p) => (
                     <button
                       key={p.id_plan}
                       type="button"
