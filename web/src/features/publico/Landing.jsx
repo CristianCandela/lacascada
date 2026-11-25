@@ -32,7 +32,7 @@ function irA(id) {
   el.scrollIntoView({ behavior: reducir ? 'auto' : 'smooth', block: 'start' });
 }
 
-// Página pública: aforo en vivo, servicios, plan y sedes. No requiere sesión.
+// Página pública: aforo en vivo, servicios, planes y sedes. No requiere sesión.
 export default function Landing({ tieneRegistro = false }) {
   const [aforo, setAforo] = useState(null);       // null = cargando
   const [falloAforo, setFalloAforo] = useState(false);
@@ -81,9 +81,9 @@ export default function Landing({ tieneRegistro = false }) {
   const hSel = horarioDe(sedeSel);
   const estado = hSel ? estadoLocal(hSel.abre, hSel.cierra) : null;
   const datos = useMemo(() => aforoDeSede(aforo, sedeSel), [aforo, sedeSel]);
-  const plan = planes && planes[0];
+  const planesMostrar = planes && planes.length > 0 ? planes : null;
   const sedesLista = Object.keys(SEDES);
-  const wa = enlaceWhatsApp(EMPRESA.telefono, 'Hola, quiero información sobre el Plan general de Cascada Gym.');
+  const wa = enlaceWhatsApp(EMPRESA.telefono, 'Hola, quiero información sobre los planes de Cascada Gym.');
 
   return (
     <div className="pub">
@@ -95,7 +95,7 @@ export default function Landing({ tieneRegistro = false }) {
           <nav className="pub-nav" aria-label="Secciones de la página">
             <button type="button" onClick={() => irA('aforo')}>Aforo</button>
             <button type="button" onClick={() => irA('servicios')}>Servicios</button>
-            <button type="button" onClick={() => irA('plan')}>Plan</button>
+            <button type="button" onClick={() => irA('plan')}>Planes</button>
             <button type="button" onClick={() => irA('sedes')}>Sedes</button>
             <button type="button" onClick={() => irA('nosotros')}>Nosotros</button>
           </nav>
@@ -116,7 +116,7 @@ export default function Landing({ tieneRegistro = false }) {
                 <a className="pub-btn pub-btn-primario" href="#/reservar">Solicitar reserva de sauna</a>
                 {tieneRegistro
                   ? <a className="pub-btn pub-btn-claro" href="#/registro">Crear mi cuenta</a>
-                  : <button type="button" className="pub-btn pub-btn-claro" onClick={() => irA('plan')}>Ver el plan</button>}
+                  : <button type="button" className="pub-btn pub-btn-claro" onClick={() => irA('plan')}>Ver los planes</button>}
               </div>
             </div>
 
@@ -166,7 +166,7 @@ export default function Landing({ tieneRegistro = false }) {
         <section className="pub-seccion pub-seccion-suave" id="servicios" aria-labelledby="pub-h-serv">
           <div className="pub-cont">
             <h2 id="pub-h-serv">Dos servicios, una membresía</h2>
-            <p className="pub-lead">Tu Plan general incluye el gimnasio y el sauna.</p>
+            <p className="pub-lead">Tu membresía de gimnasio y tus reservas de sauna desde un mismo lugar.</p>
             <div className="pub-servicios">
               {Object.entries(SERVICIOS).map(([k, s]) => (
                 <article key={k} className={`pub-servicio pub-servicio-${k}`}>
@@ -185,22 +185,37 @@ export default function Landing({ tieneRegistro = false }) {
         <section className="pub-seccion" id="plan" aria-labelledby="pub-h-plan">
           <div className="pub-cont pub-plan">
             <div>
-              <h2 id="pub-h-plan">Un solo plan, sin horarios restringidos</h2>
-              <p className="pub-lead">Entra cuando quieras dentro del horario de atención y quédate el tiempo que necesites.</p>
+              <h2 id="pub-h-plan">Planes flexibles, sin horarios restringidos</h2>
+              <p className="pub-lead">Entra al gimnasio cuando quieras dentro del horario de atención y quédate el tiempo que necesites.</p>
               <ul className="pub-lista">
                 <li><Icono n="check" tam={18} />Acceso al gimnasio todos los días de atención</li>
                 <li><Icono n="check" tam={18} />Reserva de turnos de sauna según cupos libres</li>
-                <li><Icono n="check" tam={18} />Entrada con código desde tu celular, sin papeles</li>
+                <li><Icono n="check" tam={18} />Máximo 1 membresía vigente por cliente</li>
                 <li><Icono n="check" tam={18} />Consulta cuándo vence tu membresía en tu cuenta</li>
               </ul>
             </div>
-            <div className="pub-precio" aria-live="polite">
-              <p className="pub-precio-nombre">{plan ? plan.nombre : 'Plan general'}</p>
-              {plan
-                ? (<p className="pub-precio-monto"><b>{formatoPrecio(plan.precio)}</b><span>por {plan.dias} días</span></p>)
-                : (<p className="pub-precio-monto"><span>{planes === null ? 'Cargando tarifa…' : 'Consulta la tarifa en recepción'}</span></p>)}
-              <a className="pub-btn pub-btn-primario" href={tieneRegistro ? '#/registro' : '#/reservar'}>{tieneRegistro ? 'Crear mi cuenta' : 'Solicitar información'}</a>
-              <p className="pub-pie-precio">Tarifa referencial del prototipo; la tarifa vigente se confirma en recepción.</p>
+            <div style={{ display: 'grid', gap: '14px' }} aria-live="polite">
+              {planesMostrar ? (
+                planesMostrar.map((p) => (
+                  <div key={p.nombre} className="pub-precio">
+                    <p className="pub-precio-nombre">{p.nombre}</p>
+                    <p className="pub-precio-monto">
+                      <b>{formatoPrecio(p.precio)}</b><span>por {p.dias} días</span>
+                    </p>
+                    <a className="pub-btn pub-btn-primario" href={tieneRegistro ? '#/registro' : '#/reservar'}>
+                      {tieneRegistro ? 'Crear mi cuenta' : 'Solicitar información'}
+                    </a>
+                  </div>
+                ))
+              ) : (
+                <div className="pub-precio">
+                  <p className="pub-precio-nombre">Planes disponibles</p>
+                  <p className="pub-precio-monto">
+                    <span>{planes === null ? 'Cargando tarifas…' : 'Consulta las tarifas en recepción'}</span>
+                  </p>
+                </div>
+              )}
+              <p className="pub-pie-precio">Tarifas referenciales del prototipo; la tarifa vigente se confirma en recepción.</p>
             </div>
           </div>
         </section>

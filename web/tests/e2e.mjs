@@ -5,9 +5,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
 const require = createRequire(import.meta.url);
 let chromium;
-try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require('/opt/npm-tools/node_modules/playwright')); }
+try {
+  ({ chromium } = require('playwright'));
+} catch {
+  const rutaOpt = '/opt/npm-tools/node_modules/playwright';
+  if (fs.existsSync(rutaOpt)) {
+    ({ chromium } = require(rutaOpt));
+  } else {
+    throw new Error('Playwright no está instalado. Ejecuta: npm install -D playwright && npx playwright install chromium');
+  }
+}
 
 const aqui = path.dirname(fileURLToPath(import.meta.url));
 const raiz = path.join(aqui, '..', 'dist-mock');
@@ -51,7 +61,7 @@ function manana(h) {
   }
   // Formulario de la reserva PÚBLICA (#/reservar). No cambia.
   async function llenar(page, o) {
-       await page.fill('#r-nombre', o.nombre ?? 'Lucía Prueba');
+    await page.fill('#r-nombre', o.nombre ?? 'Lucía Prueba');
     await page.fill('#r-dni', o.dni ?? '70000099');
     await page.fill('#r-telefono', o.telefono ?? '900000099');
     await page.selectOption('#r-servicio', o.servicio ?? 'sauna');
@@ -241,9 +251,9 @@ function manana(h) {
   await q.locator('tr[data-id="c2"] [data-accion="cancelo"]').click();
   await q.waitForFunction(() => window.__mock.db.citas.find(c => c.id_cita === 'c2').estado_asistencia === 'cancelo');
   const reg = await q.evaluate(() => window.__mock.db.citas.find(c => c.id_cita === 'c2'));
- 
-   chk('28. «Canceló» se guarda y se muestra',
-     (await q.locator('tr[data-id="c2"] .etq.cancelo').textContent({ timeout: 3000 }).catch(() => '')).includes('Canceló'));
+
+  chk('28. «Canceló» se guarda y se muestra',
+    (await q.locator('tr[data-id="c2"] .etq.cancelo').textContent({ timeout: 3000 }).catch(() => '')).includes('Canceló'));
   chk('29. Log de tiempo: guarda marcada_en y segundos_registro (número ≥ 0)',
     !!reg.marcada_en && typeof reg.segundos_registro === 'number' && reg.segundos_registro >= 0);
 

@@ -1,5 +1,5 @@
 // Simulación del servidor para el rol cliente (solo `npm run dev:mock` y pruebas).
-// Debe seguir `docs/CONTRATO_DATOS.md`. El código del local en el mock es 123456.
+// Debe seguir `docs/CONTRATO_DATOS.md`.
 import {
   ok,
   err,
@@ -7,7 +7,6 @@ import {
   sumarDias,
   horaLima,
   CAPACIDAD,
-  CODIGO_DEMO,
   iniciarTablas,
   membresiaVigente,
   cerrarVisitasVencidas,
@@ -25,16 +24,38 @@ const soloClientes = () => err('Acceso denegado: solo los clientes');
 
 export const mock = {
   usuarios: {
-    'cliente@demo.test': { id: 'u3', pass: 'demo123', perfil: { nombre: 'Cliente de prueba', rol: 'cliente' } }
+    'cliente@demo.test': { id: 'u3', pass: 'demo123', perfil: { nombre: 'Cliente de prueba', rol: 'cliente' } },
+    'dennis.cliente@demo.test': { id: 'u4', pass: 'demo123', perfil: { nombre: 'Dennis Mendoza', rol: 'cliente' } }
   },
   iniciar(db) {
     iniciarTablas(db);
+    if (!db.planes) db.planes = [];
+    if (!db.planes.some((p) => p.id_plan === 'p1')) {
+      db.planes.push({
+        id_plan: 'p1',
+        nombre: 'Plan general',
+        dias: 30,
+        precio: 150,
+        activo: true
+      });
+    }
+    if (!db.planes.some((p) => p.id_plan === 'p2')) {
+      db.planes.push({
+        id_plan: 'p2',
+        nombre: 'Plan bimestral',
+        dias: 60,
+        precio: 270,
+        activo: true
+      });
+    }
     if (!db.clientes.some((c) => c.id_usuario === 'u3')) {
       db.clientes.push({
         id_cliente: 'kc1',
         nombre: 'Cliente de prueba',
         dni: '70000100',
         telefono: '900000100',
+        fecha_nacimiento: '1998-05-14',
+        foto_url: '',
         estado: 'activo',
         id_usuario: 'u3',
         consentimiento: true,
@@ -48,19 +69,27 @@ export const mock = {
         fin: sumarDias(hoyLima(), 19)
       });
     }
+    if (!db.clientes.some((c) => c.id_usuario === 'u4')) {
+      db.clientes.push({
+        id_cliente: 'kc2',
+        nombre: 'Dennis Mendoza',
+        dni: '70000104',
+        telefono: '900000104',
+        fecha_nacimiento: '2002-08-20',
+        foto_url: '',
+        estado: 'activo',
+        id_usuario: 'u4',
+        consentimiento: true,
+        fecha_consentimiento: new Date().toISOString()
+      });
+    }
   },
   rpc: {
-    // La cuenta ya existe en Auth (supabase.auth.signUp); aquí se crea o vincula el cliente.
     registrar_cliente(a, ctx) {
       const { db } = ctx;
       const uid = (ctx.usuario() && ctx.usuario().id) || db.cuenta_nueva;
       if (!uid) return err('Acceso denegado: inicia sesión primero');
       if (db.perfiles.some((p) => p.id === uid)) return ok({ ok: false, motivo: 'Esta cuenta ya tiene un perfil.' });
-      if (intentosExcedidos(db, uid)) return ok({ ok: false, motivo: MSG_BLOQUEO });
-      if (String(a.p_codigo_local).trim() !== CODIGO_DEMO) {
-        anotarIntento(db, uid, false);
-        return ok({ ok: false, motivo: 'Código del local incorrecto o vencido.' });
-      }
       if (a.p_consentimiento !== true) {
         return ok({ ok: false, motivo: 'Debes aceptar el tratamiento de tus datos personales.' });
       }
@@ -70,6 +99,19 @@ export const mock = {
       if (!/^[0-9]{8}$/.test(a.p_dni || '') || !/^[0-9]{9}$/.test(a.p_telefono || '')) {
         return ok({ ok: false, motivo: 'DNI (8 dígitos) o teléfono (9 dígitos) con formato inválido.' });
       }
+
+      const fn = a.p_fecha_nacimiento !== undefined ? String(a.p_fecha_nacimiento || '').trim() : '';
+      if (a.p_fecha_nacimiento !== undefined) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fn)) {
+          return ok({ ok: false, motivo: 'Ingresa tu fecha de nacimiento.' });
+        }
+        const anioNac = Number(fn.slice(0, 4));
+        const anioActual = Number(hoyLima().slice(0, 4));
+        if (anioNac > anioActual || anioActual - anioNac < 18) {
+          return ok({ ok: false, motivo: 'Debes ser mayor de edad' });
+        }
+      }
+
       let cli = db.clientes.find((c) => c.dni === a.p_dni);
       if (cli) {
         if (cli.id_usuario) return ok({ ok: false, motivo: 'Ese DNI ya está registrado con otra cuenta.' });
@@ -77,12 +119,15 @@ export const mock = {
           return ok({ ok: false, motivo: 'Los datos no coinciden con un registro existente. Acude a recepción.' });
         }
         cli.id_usuario = uid;
+        if (fn) cli.fecha_nacimiento = fn;
       } else {
         cli = {
           id_cliente: ctx.nuevoId('k'),
           nombre: a.p_nombre.trim(),
           dni: a.p_dni,
           telefono: a.p_telefono,
+          fecha_nacimiento: fn,
+          foto_url: '',
           estado: 'activo',
           id_usuario: uid,
           consentimiento: true,
@@ -132,13 +177,60 @@ export const mock = {
       const hoy = hoyLima();
       const activas = ms.filter((m) => m.fin >= hoy).sort((x, y) => (x.inicio < y.inicio ? -1 : 1));
       const dias = Math.max(Math.round((new Date(`${ms[0].fin}T00:00:00Z`) - new Date(`${hoy}T00:00:00Z`)) / 86400000), 0);
+      const planObj = ctx.db.planes.find((p) => p.id_plan === ms[0].id_plan);
       return ok({
         vigente: membresiaVigente(ctx.db, cli.id_cliente) !== null,
-        plan: ctx.db.planes.find((p) => p.id_plan === ms[0].id_plan).nombre,
+        plan: planObj ? planObj.nombre : ms[0].id_plan,
         inicio: activas.length ? activas[0].inicio : ms[0].inicio,
         fin: ms[0].fin,
         dias_restantes: dias
       });
+    },
+
+    // Registra pago de membresía (Visa, Yape o Plin) solo si el cliente no tiene una membresía vigente (máximo 1 membresía).
+    pagar_membresia(a, ctx) {
+      const cli = clienteActual(ctx);
+      if (!cli) return soloClientes();
+      if (cli.estado !== 'activo') return ok({ ok: false, motivo: 'Tu cuenta no está activa.' });
+      if (membresiaVigente(ctx.db, cli.id_cliente)) {
+        return ok({ ok: false, motivo: 'Solo puedes tener 1 membresía vigente a la vez.' });
+      }
+      const plan = ctx.db.planes.find((p) => p.id_plan === a.p_id_plan && p.activo !== false);
+      if (!plan) return ok({ ok: false, motivo: 'El plan seleccionado no está disponible.' });
+
+      const medio = String(a.p_medio || 'visa').toLowerCase().trim();
+      if (!['visa', 'yape', 'plin'].includes(medio)) {
+        return ok({ ok: false, motivo: 'Selecciona una opción de pago válida (Visa, Yape o Plin).' });
+      }
+
+      const inicio = hoyLima();
+      const fin = sumarDias(inicio, Number(plan.dias) - 1);
+      const idMembresia = ctx.nuevoId('m');
+      const idPago = ctx.nuevoId('pg');
+
+      ctx.db.membresias.push({
+        id_membresia: idMembresia,
+        id_cliente: cli.id_cliente,
+        id_plan: plan.id_plan,
+        inicio,
+        fin
+      });
+      ctx.db.pagos.push({
+        id_pago: idPago,
+        id_cliente: cli.id_cliente,
+        id_plan: plan.id_plan,
+        monto: plan.precio,
+        medio,
+        pagado_en: new Date().toISOString()
+      });
+      if (ctx.registrar) {
+        ctx.registrar('membresias', 'pagar', idMembresia, cli.id_cliente, {
+          id_plan: plan.id_plan,
+          monto: plan.precio,
+          medio
+        });
+      }
+      return ok({ ok: true, id_membresia: idMembresia, plan: plan.nombre, medio, inicio, fin });
     },
 
     mis_visitas(a, ctx) {
@@ -158,11 +250,61 @@ export const mock = {
     mis_datos(a, ctx) {
       const cli = clienteActual(ctx);
       if (!cli) return soloClientes();
-      const { nombre, dni, telefono, estado, consentimiento, fecha_consentimiento } = cli;
-      return ok({ nombre, dni, telefono, estado, consentimiento, fecha_consentimiento });
+      const {
+        nombre,
+        dni,
+        telefono,
+        fecha_nacimiento = '',
+        foto_url = '',
+        estado,
+        consentimiento,
+        fecha_consentimiento
+      } = cli;
+      return ok({
+        nombre,
+        dni,
+        telefono,
+        fecha_nacimiento,
+        foto_url,
+        estado,
+        consentimiento,
+        fecha_consentimiento
+      });
     },
 
-    // Lista las reservas de sauna del cliente autenticado (HU-C4)
+    actualizar_mi_perfil(a, ctx) {
+      const cli = clienteActual(ctx);
+      if (!cli) return soloClientes();
+      if (a.p_fecha_nacimiento !== undefined) {
+        const fn = String(a.p_fecha_nacimiento || '').trim();
+        if (fn) {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(fn)) {
+            return ok({ ok: false, motivo: 'Formato de fecha de nacimiento no válido.' });
+          }
+          const anioNac = Number(fn.slice(0, 4));
+          const anioActual = Number(hoyLima().slice(0, 4));
+          if (anioNac > anioActual || anioActual - anioNac < 18) {
+            return ok({ ok: false, motivo: 'Debes ser mayor de edad' });
+          }
+        }
+        cli.fecha_nacimiento = fn;
+      }
+      if (a.p_foto_url !== undefined) {
+        cli.foto_url = String(a.p_foto_url || '');
+      }
+      if (ctx.registrar) {
+        ctx.registrar('clientes', 'actualizar_perfil', cli.id_cliente, cli.id_cliente, {
+          fecha_nacimiento: cli.fecha_nacimiento,
+          tiene_foto: Boolean(cli.foto_url)
+        });
+      }
+      return ok({
+        ok: true,
+        fecha_nacimiento: cli.fecha_nacimiento || '',
+        foto_url: cli.foto_url || ''
+      });
+    },
+
     mis_reservas(a, ctx) {
       const cli = clienteActual(ctx);
       if (!cli) return soloClientes();
@@ -180,7 +322,7 @@ export const mock = {
       );
     },
 
-    // Reserva de sauna en franja de una hora. Devuelve id_cita o un error legible.
+    // Reserva de sauna en franja de una hora (solo reserva por cupo y horario, sin exigir membresía de gimnasio).
     reservar_sauna(a, ctx) {
       const cli = clienteActual(ctx);
       if (!cli) return err('Acceso denegado: solo los clientes reservan por esta vía');
@@ -196,8 +338,6 @@ export const mock = {
       if (!s) return err('Sede no válida.');
       const hl = horaLima(slot);
       if (hl < s.abre || hl >= s.cierra) return err('Ese horario está fuera del horario de atención.');
-      const dia = new Date(slot.getTime() - 5 * 3600 * 1000).toISOString().slice(0, 10);
-      if (!membresiaVigente(db, cli.id_cliente, dia)) return err('Tu membresía no cubre esa fecha.');
       const iso = slot.toISOString();
       const misma = (c) =>
         c.servicio === 'sauna' && c.fecha_hora_cita.slice(0, 13) === iso.slice(0, 13) && c.estado_asistencia !== 'cancelo';

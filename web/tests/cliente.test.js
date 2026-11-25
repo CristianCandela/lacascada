@@ -9,13 +9,12 @@ import {
 } from '../src/features/cliente/logica.js';
 
 test('CLI-LOGICA-1: Validaciones de autoregistro de cliente (HU-C1)', () => {
-  // Caso exitoso
+  // Caso exitoso (sin código de local)
   const ok = validarDatosRegistro({
     nombre: 'Juan Pérez',
     dni: '78901234',
     telefono: '987654321',
-    consentimiento: true,
-    codigoLocal: '123456'
+    consentimiento: true
   });
   assert.equal(ok.valido, true);
 
@@ -24,8 +23,7 @@ test('CLI-LOGICA-1: Validaciones de autoregistro de cliente (HU-C1)', () => {
     nombre: 'Juan Pérez',
     dni: '123',
     telefono: '987654321',
-    consentimiento: true,
-    codigoLocal: '123456'
+    consentimiento: true
   });
   assert.equal(errDni.valido, false);
   assert.equal(errDni.motivo, 'El DNI debe tener 8 dígitos');
@@ -35,8 +33,7 @@ test('CLI-LOGICA-1: Validaciones de autoregistro de cliente (HU-C1)', () => {
     nombre: 'Juan Pérez',
     dni: '78901234',
     telefono: '987654321',
-    consentimiento: false,
-    codigoLocal: '123456'
+    consentimiento: false
   });
   assert.equal(errConsent.valido, false);
 });
@@ -75,20 +72,27 @@ test('CLI-LOGICA-4: Cálculo de días restantes de membresía (HU-C5)', () => {
 });
 
 const FECHA_FUTURA = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10) + 'T10:00:00';
+const FECHA_PASADA = new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10) + 'T10:00:00';
 
 test('CLI-LOGICA-5: Validación de reglas de negocio al reservar sauna (HU-C3)', () => {
-  // Intento de reserva sin membresía activa
+  // Permite reservar sauna sin requerir membresía activa de gimnasio
   const sinMembresia = validarReservaSauna({
     fechaHora: FECHA_FUTURA,
     membresiaVigente: false
   });
-  assert.equal(sinMembresia.valido, false);
-  assert.equal(sinMembresia.motivo, 'Requiere membresía vigente');
+  assert.equal(sinMembresia.valido, true);
 
-  // Intento exitoso con membresía activa
-  const conMembresia = validarReservaSauna({
-    fechaHora: FECHA_FUTURA,
-    membresiaVigente: true
+  // Rechaza reserva sin fecha u hora
+  const sinFecha = validarReservaSauna({
+    fechaHora: ''
   });
-  assert.equal(conMembresia.valido, true);
+  assert.equal(sinFecha.valido, false);
+  assert.equal(sinFecha.motivo, 'Debe seleccionar una fecha y hora');
+
+  // Rechaza reserva en fecha pasada
+  const pasada = validarReservaSauna({
+    fechaHora: FECHA_PASADA
+  });
+  assert.equal(pasada.valido, false);
+  assert.equal(pasada.motivo, 'No puede reservar en una fecha u hora pasada');
 });

@@ -47,7 +47,7 @@ export function validarCredencialesRegistro({ email, password }) {
 /**
  * Valida el formulario de autoregistro de cliente (HU-C1)
  */
-export function validarDatosRegistro({ email, password, nombre, dni, telefono, consentimiento, codigoLocal }) {
+export function validarDatosRegistro({ email, password, nombre, dni, telefono, consentimiento }) {
   if (email !== undefined || password !== undefined) {
     const cred = validarCredencialesRegistro({ email, password });
     if (!cred.valido) return cred;
@@ -63,9 +63,6 @@ export function validarDatosRegistro({ email, password, nombre, dni, telefono, c
   }
   if (!consentimiento) {
     return { valido: false, motivo: 'Debe aceptar los términos y consentimiento' };
-  }
-  if (!codigoLocal || String(codigoLocal).trim().length !== 6) {
-    return { valido: false, motivo: 'Código de local inválido (debe tener 6 dígitos)' };
   }
   return { valido: true };
 }
@@ -98,12 +95,9 @@ export function calcularDiasRestantes(fechaFinStr) {
 }
 
 /**
- * Valida las reglas de negocio antes de agendar un turno de sauna (HU-C3)
+ * Valida las reglas de negocio antes de agendar un turno de sauna (solo reservas, sin requerir membresía de gimnasio).
  */
-export function validarReservaSauna({ fechaHora, membresiaVigente }) {
-  if (!membresiaVigente) {
-    return { valido: false, motivo: 'Requiere membresía vigente' };
-  }
+export function validarReservaSauna({ fechaHora }) {
   if (!fechaHora) {
     return { valido: false, motivo: 'Debe seleccionar una fecha y hora' };
   }
