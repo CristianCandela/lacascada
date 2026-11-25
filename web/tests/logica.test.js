@@ -127,3 +127,21 @@ test('textoFalta: minutos y horas legibles', () => {
   assert.equal(textoFalta(60), '1 h');
   assert.equal(textoFalta(95), '1 h 35 min');
 });
+
+test('agenda: agrupa por día, ignora canceladas y cuenta por día', async () => {
+  const { agruparPorDia, contarPorDia, citasVigentes, diasDesde, claveDia } = await import('../src/lib/logica.js');
+  const f = (d, h) => new Date(2026, 10, d, h, 0).toISOString();
+  const citas = [
+    { id_cita: 'a', fecha_hora_cita: f(26, 18), estado_asistencia: 'pendiente' },
+    { id_cita: 'b', fecha_hora_cita: f(25, 9), estado_asistencia: 'pendiente' },
+    { id_cita: 'c', fecha_hora_cita: f(25, 7), estado_asistencia: 'pendiente' },
+    { id_cita: 'd', fecha_hora_cita: f(25, 12), estado_asistencia: 'cancelo' }
+  ];
+  assert.equal(citasVigentes(citas).length, 3);
+  assert.deepEqual(contarPorDia(citas), { '2026-11-25': 2, '2026-11-26': 1 });
+  const g = agruparPorDia(citas);
+  assert.deepEqual(g.map((x) => x.dia), ['2026-11-25', '2026-11-26']);
+  assert.deepEqual(g[0].citas.map((x) => x.id_cita), ['c', 'b']);   // ordenadas por hora
+  assert.equal(claveDia(f(5, 23)), '2026-11-05');
+  assert.deepEqual(diasDesde('2026-11-29', 3), ['2026-11-29', '2026-11-30', '2026-12-01']);
+});

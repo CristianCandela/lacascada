@@ -195,3 +195,5 @@
   background-color: #f3f4f6;
   color: #374151;
 }
+.cli-pago-nota { margin-top: 4px; font-size: .84rem; color: #92400E; }
+.cli-pago-nota.ok { color: #166534; }

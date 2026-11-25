@@ -43,7 +43,7 @@ function ficha(db, c) {
     ultima_entrada: entradas[0] ? entradas[0].entrada_en : null,
     pase_hoy: db.pagos.some((p) => p.id_cliente === c.id_cliente && p.concepto === 'pase_dia' && mismoDia(p.pagado_en)),
     citas_hoy: db.citas.filter((x) => x.id_cliente === c.id_cliente && x.servicio === 'sauna' && mismoDia(x.fecha_hora_cita) && x.estado_asistencia !== 'cancelo')
-      .map((x) => ({ id_cita: x.id_cita, fecha_hora_cita: x.fecha_hora_cita, estado_pago: x.estado_pago || 'pagada', estado_asistencia: x.estado_asistencia }))
+      .map((x) => ({ id_cita: x.id_cita, fecha_hora_cita: x.fecha_hora_cita, estado_pago: x.estado_pago || 'pagada', tarifa_aplicada: x.tarifa_aplicada === undefined ? null : x.tarifa_aplicada, estado_asistencia: x.estado_asistencia }))
   };
 }
 
@@ -137,6 +137,21 @@ export const mock = {
       ctx.db.pagos.push({ id_pago: ctx.nuevoId('pg'), id_cliente: cli.id_cliente, id_cita: id, monto: tarifa.monto, medio: args.p_medio,
         concepto: 'sauna', pagado_en: new Date().toISOString() });
       return { data: id, error: null };
+    },
+
+    // cobrar_cita_sauna(p_id_cita, p_medio): cobra una cita de sauna con pago pendiente (reservada por el cliente).
+    cobrar_cita_sauna(args, ctx) {
+      if (!soloPersonal(ctx)) return err('Sin permiso');
+      if (!['efectivo', 'yape', 'plin'].includes(args.p_medio)) return err('Medio de pago no válido');
+      const cita = ctx.db.citas.find((c) => c.id_cita === args.p_id_cita && c.servicio === 'sauna');
+      if (!cita) return err('La cita no existe.');
+      if (cita.estado_asistencia === 'cancelo') return err('La cita fue cancelada.');
+      if ((cita.estado_pago || 'pagada') === 'pagada') return err('La cita ya está pagada.');
+      const monto = cita.tarifa_aplicada || calcularTarifaSauna(false).monto;
+      ctx.db.pagos.push({ id_pago: ctx.nuevoId('pg'), id_cliente: cita.id_cliente, id_cita: cita.id_cita, monto, medio: args.p_medio,
+        concepto: 'sauna', pagado_en: new Date().toISOString() });
+      cita.estado_pago = 'pagada'; cita.tarifa_aplicada = monto;
+      return { data: { ok: true, monto, medio: args.p_medio }, error: null };
     },
 
     // PROPUESTA: resumen_dia(p_sede) -> entradas, cobros por medio, no-shows, turnos de sauna

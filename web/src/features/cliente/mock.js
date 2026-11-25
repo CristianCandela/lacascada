@@ -317,7 +317,9 @@ export const mock = {
             servicio: c.servicio,
             sede: c.sede,
             fecha_hora_cita: c.fecha_hora_cita,
-            estado_asistencia: c.estado_asistencia
+            estado_asistencia: c.estado_asistencia,
+            estado_pago: c.estado_pago || 'pagada',
+            tarifa_aplicada: c.tarifa_aplicada === undefined ? null : c.tarifa_aplicada
           }))
       );
     },
@@ -355,7 +357,9 @@ export const mock = {
         fecha_hora_cita: iso,
         fecha_hora_registro: new Date().toISOString(),
         estado_asistencia: 'pendiente',
-        origen: 'cliente'
+        origen: 'cliente',
+        estado_pago: 'pendiente',      // se cobra en recepción
+        tarifa_aplicada: 15            // tarifa de afiliado (reservar exige membresía vigente)
       };
       db.citas.push(cita);
       if (ctx.registrar) {

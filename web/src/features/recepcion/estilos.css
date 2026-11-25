@@ -1683,3 +1683,7 @@
     color: #40484e;
     font-size: .75rem;
 }
+
+/* Cobro de una cita de sauna reservada en línea */
+.rec-cobrar { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rec-cobrar select { width: auto; min-height: 38px; padding: 6px 10px; }

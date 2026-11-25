@@ -22,6 +22,7 @@ export default function Checkin({ onAviso }) {
   const [recientes, setRecientes] = useState([]);
   const [ok, setOk] = useState('');
   const [ocupado, setOcupado] = useState(false);
+  const [medio, setMedio] = useState('efectivo');
 
   const aviso = (m) => onAviso && onAviso(m);
 
@@ -77,6 +78,16 @@ export default function Checkin({ onAviso }) {
     const r = await supabase.rpc('checkin_manual', { p_id_cliente: f.id_cliente, p_servicio: 'sauna', p_id_cita: cita.id_cita, p_sede: sede });
     if (r.error) { aviso(mensajeError(r.error)); return; }
     aviso(''); setOk('Asistencia al sauna registrada.');
+    recargarFicha();
+  }
+
+  // Cobra una reserva de sauna hecha por el cliente (nace con el pago pendiente).
+  async function cobrarCita(cita) {
+    setOcupado(true);
+    const r = await supabase.rpc('cobrar_cita_sauna', { p_id_cita: cita.id_cita, p_medio: medio });
+    setOcupado(false);
+    if (r.error) { aviso(mensajeError(r.error)); return; }
+    aviso(''); setOk(`Cobro registrado (${medio}): S/ ${Number(r.data && r.data.monto != null ? r.data.monto : cita.tarifa_aplicada || 0).toFixed(2)}.`);
     recargarFicha();
   }
 
@@ -196,7 +207,7 @@ export default function Checkin({ onAviso }) {
 
               <div className="rec-bloque">
                 <div className="rec-bloque-cab">
-                  <div><h3>2. Sauna</h3><small>Siempre con reserva pagada. No exige membresía.</small></div>
+                  <div><h3>2. Sauna</h3><small>Se cobra aquí si el cliente reservó en línea. No exige membresía para entrar.</small></div>
                   <span className="rec-etiqueta">{f.citas_hoy.length} TURNO(S) HOY</span>
                 </div>
                 {f.citas_hoy.length === 0 && <p className="rec-nota">Sin citas de sauna hoy.</p>}
@@ -204,6 +215,19 @@ export default function Checkin({ onAviso }) {
                   {f.citas_hoy.map((c) => (
                     <li key={c.id_cita} className="rec-cita">
                       <div><strong className="rec-num">{hhmm(c.fecha_hora_cita)}</strong><small>{etiquetaPago[c.estado_pago]} · {etiquetaAsist[c.estado_asistencia]}</small></div>
+                      {c.estado_asistencia === 'pendiente' && c.estado_pago === 'pendiente' && (
+                        <span className="rec-cobrar">
+                          <label htmlFor={`medio-${c.id_cita}`} className="sr">Medio de pago</label>
+                          <select id={`medio-${c.id_cita}`} value={medio} onChange={(e) => setMedio(e.target.value)} aria-label="Medio de pago">
+                            <option value="efectivo">Efectivo</option>
+                            <option value="yape">Yape</option>
+                            <option value="plin">Plin</option>
+                          </select>
+                          <button type="button" data-accion="cobrar-cita" className="rec-btn-nar" disabled={ocupado} onClick={() => cobrarCita(c)}>
+                            Cobrar{c.tarifa_aplicada != null ? ` S/ ${Number(c.tarifa_aplicada).toFixed(2)}` : ''}
+                          </button>
+                        </span>
+                      )}
                       {c.estado_asistencia === 'pendiente' && c.estado_pago === 'pagada' && (
                         <button type="button" className="rec-btn-nar" onClick={() => marcarAsistio(c)}>Registrar asistió</button>
                       )}

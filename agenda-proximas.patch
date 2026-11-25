@@ -1,0 +1,780 @@
+diff --git a/web/src/components/Agenda.jsx b/web/src/components/Agenda.jsx
+index a30c450..d5f71fd 100644
+--- a/web/src/components/Agenda.jsx
++++ b/web/src/components/Agenda.jsx
+@@ -1,16 +1,32 @@
+ import { useCallback, useEffect, useState } from 'react';
+ import { supabase, mensajeError } from '../lib/supabase';
+-import { esAltoRiesgo, hoyLocal, mensajeRecordatorio, minutosParaRecordar, textoFalta, urlWhatsApp } from '../lib/logica';
++import {
++  agruparPorDia, citasVigentes, claveDia, contarPorDia, diasDesde, hoyLocal,
++  mensajeRecordatorio, minutosParaRecordar, textoFalta, urlWhatsApp
++} from '../lib/logica';
+ import Icono, { iniciales, tonoAvatar } from './Iconos';
++import './agenda.css';
+ 
+ const ETIQUETAS = { asistio: 'Asistió', no_asistio: 'No asistió', cancelo: 'Canceló', pendiente: 'Pendiente' };
+ const NOMBRE_SERVICIO = { sauna: 'Sauna', gimnasio: 'Gimnasio' };
++const COLUMNAS = 'id_cita, id_cliente, servicio, sede, fecha_hora_cita, estado_asistencia, origen, recordatorio_enviado_en, confirmada_en, clientes(nombre, telefono)';
++const DIAS_TIRA = 14;     // días que muestra la tira de arriba
++const DIAS_PROXIMAS = 31; // reservar_sauna permite hasta 30 días de anticipación
+ 
+ function moverDia(dia, n) {
+   const d = new Date(`${dia}T12:00:00`);
+   d.setDate(d.getDate() + n);
+-  const p = (x) => String(x).padStart(2, '0');
+-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
++  return claveDia(d);
++}
++
++const hhmm = (iso) => new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
++const fechaLarga = (dia) => new Date(`${dia}T12:00:00`).toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' });
++
++function etiquetaDia(dia) {
++  const hoy = hoyLocal();
++  if (dia === hoy) return 'Hoy';
++  if (dia === moverDia(hoy, 1)) return 'Mañana';
++  return new Date(`${dia}T12:00:00`).toLocaleDateString('es-PE', { weekday: 'long' });
+ }
+ 
+ function Resumen({ icono, tono, valor, texto }) {
+@@ -23,24 +39,56 @@ function Resumen({ icono, tono, valor, texto }) {
+ }
+ 
+ export default function Agenda({ perfil, onAviso }) {
++  const [vista, setVista] = useState('dia');            // 'dia' | 'proximas'
+   const [dia, setDia] = useState(hoyLocal());
+   const [filas, setFilas] = useState(null);
++  const [proximas, setProximas] = useState(null);
+   const [buscar, setBuscar] = useState('');
+   const [fServicio, setFServicio] = useState('');
+   const [fSede, setFSede] = useState('');
+   const [soloRiesgo, setSoloRiesgo] = useState(false);
+   const [riesgo, setRiesgo] = useState({});
++  const [riesgoProx, setRiesgoProx] = useState({});
+   const [soloRecordar, setSoloRecordar] = useState(false);
+   const [fEstado, setFEstado] = useState('');
+   const [ahora, setAhora] = useState(() => new Date());
+   const admin = perfil.rol === 'administrador';
+ 
++  // Riesgo heurístico del historial de 30 días (función SQL riesgo_clientes).
++  async function riesgoDe(datos) {
++    const ids = [...new Set(datos.filter((x) => x.estado_asistencia === 'pendiente').map((x) => x.id_cliente))];
++    const mapa = {};
++    if (ids.length) {
++      const rr = await supabase.rpc('riesgo_clientes', { p_ids: ids });
++      if (!rr.error) (rr.data || []).forEach((x) => { mapa[x.id_cliente] = x; });
++    }
++    return mapa;
++  }
++
++  // Reservas de hoy en adelante (alimenta la tira de días y la vista «Próximas reservas»).
++  const cargarProximas = useCallback(async () => {
++    const ini = new Date(`${hoyLocal()}T00:00:00`);
++    const fin = new Date(ini.getTime() + DIAS_PROXIMAS * 24 * 3600 * 1000);
++    try {
++      const r = await supabase.from('citas').select(COLUMNAS)
++        .gte('fecha_hora_cita', ini.toISOString())
++        .lt('fecha_hora_cita', fin.toISOString())
++        .order('fecha_hora_cita');
++      if (r.error) throw r.error;
++      const datos = r.data || [];
++      setProximas(datos);
++      setRiesgoProx(await riesgoDe(datos));
++    } catch (e) {
++      setProximas([]);
++      onAviso(mensajeError(e));
++    }
++  }, [onAviso]);
++
+   const cargar = useCallback(async () => {
+     const ini = new Date(`${dia}T00:00:00`);
+     const fin = new Date(ini.getTime() + 24 * 3600 * 1000);
+     try {
+-      const r = await supabase.from('citas')
+-        .select('id_cita, id_cliente, servicio, sede, fecha_hora_cita, estado_asistencia, recordatorio_enviado_en, confirmada_en, clientes(nombre, telefono)')
++      const r = await supabase.from('citas').select(COLUMNAS)
+         .gte('fecha_hora_cita', ini.toISOString())
+         .lt('fecha_hora_cita', fin.toISOString())
+         .order('fecha_hora_cita');
+@@ -48,21 +96,13 @@ export default function Agenda({ perfil, onAviso }) {
+       onAviso('');
+       const datos = r.data || [];
+       setFilas(datos);
+-      // Riesgo heurístico del historial de 30 días (función SQL riesgo_clientes).
+-      const ids = [...new Set(datos.filter((x) => x.estado_asistencia === 'pendiente').map((x) => x.id_cliente))];
+-      if (ids.length) {
+-        const rr = await supabase.rpc('riesgo_clientes', { p_ids: ids });
+-        const mapa = {};
+-        if (!rr.error) (rr.data || []).forEach((x) => { mapa[x.id_cliente] = x; });
+-        setRiesgo(mapa);
+-      } else {
+-        setRiesgo({});
+-      }
++      setRiesgo(await riesgoDe(datos));
+     } catch (e) {
+       setFilas([]);
+       onAviso(mensajeError(e));
+     }
+-  }, [dia, onAviso]);
++    cargarProximas();
++  }, [dia, onAviso, cargarProximas]);
+ 
+   useEffect(() => { cargar(); }, [cargar]);
+ 
+@@ -84,7 +124,7 @@ export default function Agenda({ perfil, onAviso }) {
+     }
+   }
+ 
+-    // Actualiza una cita y comprueba que la base realmente cambió una fila (RLS puede devolver 0 filas sin error).
++  // Actualiza una cita y comprueba que la base realmente cambió una fila (RLS puede devolver 0 filas sin error).
+   async function actualizar(f, cambios, btn) {
+     btn.disabled = true;
+     try {
+@@ -113,6 +153,13 @@ export default function Agenda({ perfil, onAviso }) {
+     return actualizar(f, { estado_asistencia: 'pendiente', marcada_en: null, segundos_registro: null }, ev.currentTarget);
+   }
+ 
++  // Anula una reserva futura: queda como «Canceló» y el cupo de esa franja se libera.
++  function anular(f, ev) {
++    const nombre = f.clientes ? f.clientes.nombre : 'este cliente';
++    const cuando = `${fechaLarga(claveDia(f.fecha_hora_cita))}, ${hhmm(f.fecha_hora_cita)}`;
++    if (!window.confirm(`¿Anular la reserva de ${nombre} (${cuando})? El cupo quedará libre para otras personas.`)) return;
++    return actualizar(f, { estado_asistencia: 'cancelo', marcada_en: new Date().toISOString(), segundos_registro: null }, ev.currentTarget);
++  }
+ 
+   function eliminar(f, ev) {
+     if (!window.confirm('¿Eliminar esta cita? Esta acción no se puede deshacer.')) return;
+@@ -132,166 +179,310 @@ export default function Agenda({ perfil, onAviso }) {
+       supabase.from('citas').update({ confirmada_en: new Date().toISOString() }).eq('id_cita', f.id_cita));
+   }
+ 
+-  const todas = filas || [];
+   const q = buscar.trim().toLowerCase();
+-  const visibles = todas.filter((f) =>
++  const altoRiesgo = (f, mapa) => f.estado_asistencia === 'pendiente' && mapa[f.id_cliente] && mapa[f.id_cliente].alto_riesgo;
++  const pasaFiltros = (f, mapa) =>
+     (!fServicio || f.servicio === fServicio) &&
+     (!fSede || f.sede === fSede) &&
+     (!fEstado || (fEstado === 'pendiente' ? f.estado_asistencia === 'pendiente' : f.estado_asistencia !== 'pendiente')) &&
+-    (!soloRiesgo || (riesgo[f.id_cliente] && riesgo[f.id_cliente].alto_riesgo)) &&
++    (!soloRiesgo || altoRiesgo(f, mapa)) &&
+     (!soloRecordar || minutosParaRecordar(f, ahora) !== null) &&
+-    (!q || (f.clientes && f.clientes.nombre.toLowerCase().includes(q))));
++    (!q || (f.clientes && f.clientes.nombre.toLowerCase().includes(q)));
++
++  // ----- Vista por día -----
++  const todas = filas || [];
++  const visibles = todas.filter((f) => pasaFiltros(f, riesgo));
+   const cuenta = (e) => todas.filter((f) => f.estado_asistencia === e).length;
+-  const nRiesgo = todas.filter((f) => f.estado_asistencia === 'pendiente' && riesgo[f.id_cliente] && riesgo[f.id_cliente].alto_riesgo).length;
++  const nRiesgo = todas.filter((f) => altoRiesgo(f, riesgo)).length;
+   const porRecordar = todas.filter((f) => minutosParaRecordar(f, ahora) !== null);
+   const esHoy = dia === hoyLocal();
+-  const titulo = new Date(`${dia}T12:00:00`).toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' });
++  const titulo = fechaLarga(dia);
+ 
+-  return (
++  // ----- Tira de días y vista «Próximas reservas» -----
++  const porDia = contarPorDia(proximas || []);
++  const tira = diasDesde(hoyLocal(), DIAS_TIRA);
++  const vigentesProx = citasVigentes(proximas || []).filter((f) => new Date(f.fecha_hora_cita) > ahora);
++  const proxFiltradas = vigentesProx.filter((f) => pasaFiltros(f, riesgoProx));
++  const grupos = agruparPorDia(proxFiltradas);
++  const limite7 = moverDia(hoyLocal(), 7);
++  const nSemana = vigentesProx.filter((f) => claveDia(f.fecha_hora_cita) < limite7).length;
++  const nOnline = vigentesProx.filter((f) => f.origen === 'cliente').length;
++  const nSinConfirmar = vigentesProx.filter((f) => f.estado_asistencia === 'pendiente' && !f.confirmada_en).length;
++
++  function abrirDia(d) { setDia(d); setVista('dia'); }
++
++  const filtros = (
+     <>
++      <div className="entrada buscador">
++        <Icono n="buscar" tam={18} />
++        <label htmlFor="a-buscar" className="sr">Buscar cliente</label>
++        <input id="a-buscar" type="search" placeholder="Buscar por cliente" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
++      </div>
++      <label htmlFor="a-servicio" className="sr">Servicio</label>
++      <select id="a-servicio" className="filtro" value={fServicio} onChange={(e) => setFServicio(e.target.value)}>
++        <option value="">Todos los servicios</option>
++        <option value="sauna">Sauna</option>
++        <option value="gimnasio">Gimnasio</option>
++      </select>
++      <label htmlFor="a-sede" className="sr">Sede</label>
++      <select id="a-sede" className="filtro" value={fSede} onChange={(e) => setFSede(e.target.value)}>
++        <option value="">Todas las sedes</option>
++        <option value="Túpac Amaru">Túpac Amaru</option>
++        <option value="Santa Rosa">Santa Rosa</option>
++      </select>
++      <label htmlFor="a-estado" className="sr">Estado</label>
++      <select id="a-estado" className="filtro" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
++        <option value="">Todos los estados</option>
++        <option value="pendiente">Solo pendientes</option>
++        <option value="atendida">Ya atendidas</option>
++      </select>
++      <label htmlFor="a-riesgo" className="chip-filtro">
++        <input id="a-riesgo" type="checkbox" checked={soloRiesgo} onChange={(e) => setSoloRiesgo(e.target.checked)} />
++        Solo alto riesgo
++      </label>
++      <button type="button" id="btn-agenda" className="sec" onClick={cargar}><Icono n="refrescar" tam={16} />Actualizar</button>
++    </>
++  );
++
++  return (
++    <div className="agenda">
+       <div className="pag-cab">
+         <div>
+-          <h1>Agenda del día</h1>
+-          <p className="ayuda">Control de asistencia de sauna y gimnasio. {esHoy ? 'Hoy' : titulo}.</p>
++          <h1>Agenda</h1>
++          <p className="ayuda">
++            {vista === 'dia'
++              ? `Control de asistencia de sauna y gimnasio. ${esHoy ? 'Hoy' : titulo}.`
++              : 'Todas las reservas que vienen, sin tener que buscar día por día.'}
++          </p>
++        </div>
++        <div className="segmento" role="tablist" aria-label="Vista de la agenda">
++          <button type="button" role="tab" data-vista="dia" aria-selected={vista === 'dia'} onClick={() => setVista('dia')}>Por día</button>
++          <button type="button" role="tab" data-vista="proximas" aria-selected={vista === 'proximas'} onClick={() => setVista('proximas')}>
++            Próximas reservas
++            {vigentesProx.length > 0 && <span className="seg-n">{vigentesProx.length}</span>}
++          </button>
+         </div>
+       </div>
+ 
+-      <div className="resumenes">
+-        <Resumen icono="usuarios" tono="azul" valor={todas.length} texto="Total de reservas" />
+-        <Resumen icono="check" tono="verde" valor={cuenta('asistio')} texto="Asistieron" />
+-        <Resumen icono="x" tono="naranja" valor={cuenta('no_asistio')} texto="No asistieron" />
+-        <Resumen icono="reloj" tono="gris" valor={cuenta('pendiente')} texto="Pendientes" />
+-        <Resumen icono="alerta" tono="ambar" valor={nRiesgo} texto="Pendientes de alto riesgo" />
+-      </div>
++      {vista === 'dia' && (
++        <>
++          <div className="tira" role="group" aria-label="Próximos días">
++            {tira.map((d) => {
++              const n = porDia[d] || 0;
++              const f = new Date(`${d}T12:00:00`);
++              return (
++                <button key={d} type="button" data-dia={d} className={`dia-chip${d === dia ? ' activo' : ''}`}
++                  aria-pressed={d === dia} aria-label={`${fechaLarga(d)}: ${n} ${n === 1 ? 'reserva' : 'reservas'}`} onClick={() => setDia(d)}>
++                  <small>{f.toLocaleDateString('es-PE', { weekday: 'short' }).replace('.', '')}</small>
++                  <b>{f.getDate()}</b>
++                  <span className={`cupo ${n ? 'hay' : 'vacio-dia'}`}>{n || '–'}</span>
++                </button>
++              );
++            })}
++          </div>
+ 
+-      <div className="tarjeta">
+-        <div className="herramientas">
+-          <div className="dia-nav">
+-            <button type="button" className="icono-btn" aria-label="Día anterior" onClick={() => setDia(moverDia(dia, -1))}><Icono n="izquierda" /></button>
+-            <label htmlFor="a-fecha" className="sr">Día</label>
+-            <input id="a-fecha" type="date" value={dia} onChange={(e) => e.target.value && setDia(e.target.value)} />
+-            <button type="button" className="icono-btn" aria-label="Día siguiente" onClick={() => setDia(moverDia(dia, 1))}><Icono n="derecha" /></button>
+-            {!esHoy && <button type="button" className="sec chico" onClick={() => setDia(hoyLocal())}>Hoy</button>}
++          <div className="resumenes">
++            <Resumen icono="usuarios" tono="azul" valor={todas.length} texto="Total de reservas" />
++            <Resumen icono="check" tono="verde" valor={cuenta('asistio')} texto="Asistieron" />
++            <Resumen icono="x" tono="naranja" valor={cuenta('no_asistio')} texto="No asistieron" />
++            <Resumen icono="reloj" tono="gris" valor={cuenta('pendiente')} texto="Pendientes" />
++            <Resumen icono="alerta" tono="ambar" valor={nRiesgo} texto="Pendientes de alto riesgo" />
+           </div>
+-          <div className="entrada buscador">
+-            <Icono n="buscar" tam={18} />
+-            <label htmlFor="a-buscar" className="sr">Buscar cliente</label>
+-            <input id="a-buscar" type="search" placeholder="Buscar por cliente" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
++
++          <div className="tarjeta">
++            <div className="herramientas">
++              <div className="dia-nav">
++                <button type="button" className="icono-btn" aria-label="Día anterior" onClick={() => setDia(moverDia(dia, -1))}><Icono n="izquierda" /></button>
++                <label htmlFor="a-fecha" className="sr">Día</label>
++                <input id="a-fecha" type="date" value={dia} onChange={(e) => e.target.value && setDia(e.target.value)} />
++                <button type="button" className="icono-btn" aria-label="Día siguiente" onClick={() => setDia(moverDia(dia, 1))}><Icono n="derecha" /></button>
++                {!esHoy && <button type="button" className="sec chico" onClick={() => setDia(hoyLocal())}>Hoy</button>}
++              </div>
++              {filtros}
++            </div>
++
++            {todas.length > 0 && (
++              <div className="avance" aria-label="Avance del día">
++                <div className="avance-barra" role="img"
++                  aria-label={`${cuenta('asistio')} asistieron, ${cuenta('no_asistio')} no asistieron, ${cuenta('cancelo')} cancelaron, ${cuenta('pendiente')} pendientes`}>
++                  <span className="a-asistio" style={{ width: `${(cuenta('asistio') / todas.length) * 100}%` }} />
++                  <span className="a-no" style={{ width: `${(cuenta('no_asistio') / todas.length) * 100}%` }} />
++                  <span className="a-cancelo" style={{ width: `${(cuenta('cancelo') / todas.length) * 100}%` }} />
++                  <span className="a-pend" style={{ width: `${(cuenta('pendiente') / todas.length) * 100}%` }} />
++                </div>
++                <div className="avance-leyenda">
++                  <span><i style={{ background: 'var(--verde)' }} /><b>{cuenta('asistio')}</b> asistieron</span>
++                  <span><i style={{ background: 'var(--naranja)' }} /><b>{cuenta('no_asistio')}</b> no asistieron</span>
++                  <span><i style={{ background: '#8995A1' }} /><b>{cuenta('cancelo')}</b> cancelaron</span>
++                  <span><i style={{ background: '#CBD5DD' }} /><b>{cuenta('pendiente')}</b> pendientes</span>
++                </div>
++              </div>
++            )}
++
++            {porRecordar.length > 0 && (
++              <div className="cola-recordar" role="status" data-cola>
++                <span>
++                  <strong>{porRecordar.length} {porRecordar.length === 1 ? 'cita por recordar' : 'citas por recordar'}</strong>
++                  {' '}(empiezan en 2 horas o menos y aún no tienen recordatorio ni confirmación).
++                </span>
++                <button type="button" className="sec chico" data-accion="ver-cola" onClick={() => setSoloRecordar(!soloRecordar)}>
++                  {soloRecordar ? 'Ver todas' : 'Ver solo estas'}
++                </button>
++              </div>
++            )}
++
++            <div className="tabla-wrap">
++              {filas === null && <p className="vacio">Cargando…</p>}
++              {filas && todas.length === 0 && (
++                <div className="vacio"><Icono n="agenda" tam={32} /><p>No hay citas para este día.</p><small>Las reservas de los clientes entran solas; revisa la vista «Próximas reservas» para ver otros días.</small></div>
++              )}
++              {filas && todas.length > 0 && visibles.length === 0 && (
++                <div className="vacio"><Icono n="buscar" tam={32} /><p>Ninguna cita coincide con los filtros.</p></div>
++              )}
++              {visibles.length > 0 && (
++                <table>
++                  <thead>
++                    <tr><th>Hora</th><th>Cliente</th><th>Servicio</th><th>Contacto</th><th>Estado</th><th>Acción</th></tr>
++                  </thead>
++                  <tbody>
++                    {visibles.map((f) => {
++                      const nombre = f.clientes ? f.clientes.nombre : '—';
++                      const falta = minutosParaRecordar(f, ahora);
++                      const ini = new Date(f.fecha_hora_cita);
++                      const enCurso = esHoy && f.estado_asistencia === 'pendiente' && ini <= ahora && ahora < new Date(ini.getTime() + 3600 * 1000);
++                      return (
++                        <tr key={f.id_cita} data-id={f.id_cita} className={f.estado_asistencia}>
++                          <td data-label="Hora" className="hora">
++                            <div className="hora-col"><span>{hhmm(f.fecha_hora_cita)}</span>{enCurso && <span className="en-curso">En curso</span>}</div>
++                          </td>
++                          <td data-label="Cliente">
++                            <span className="persona">
++                              <span className={`avatar ${tonoAvatar(nombre)}`} aria-hidden="true">{iniciales(nombre)}</span>
++                              <span className="persona-txt">
++                                <span>{nombre}
++                                  {altoRiesgo(f, riesgo) && (
++                                    <span className="etq riesgo" data-riesgo="alto"
++                                      title={`${riesgo[f.id_cliente].no_asistio} inasistencias en ${riesgo[f.id_cliente].total} citas de los últimos 30 días (${riesgo[f.id_cliente].tasa}%)`}>
++                                      <Icono n="alerta" tam={12} />Alto riesgo
++                                    </span>
++                                  )}
++                                </span>
++                                <small>Sede {f.sede}</small>
++                              </span>
++                            </span>
++                          </td>
++                          <td data-label="Servicio"><span className={`servicio ${f.servicio}`}><Icono n={f.servicio === 'sauna' ? 'sauna' : 'pesa'} tam={14} />{NOMBRE_SERVICIO[f.servicio] || f.servicio}</span></td>
++                          <td data-label="Contacto">
++                            <div className="contacto">
++                              <span data-contacto>
++                                {f.confirmada_en ? <span className="etq asistio">Confirmó</span>
++                                  : f.recordatorio_enviado_en ? <span className="etq">Recordado</span>
++                                  : falta !== null ? <span className="etq recordar" data-recordar>Recordar · faltan {textoFalta(falta)}</span>
++                                  : <span className="tenue">Sin contacto</span>}
++                              </span>
++                              {f.estado_asistencia === 'pendiente' && (
++                                <span className="contacto-acc">
++                                  <button type="button" data-accion="whatsapp" className={`chico ${falta !== null || altoRiesgo(f, riesgo) ? 'wa-destacado' : 'sec'}`} title="Enviar recordatorio por WhatsApp" aria-label="Enviar recordatorio por WhatsApp" onClick={(e) => recordar(f, e)}><Icono n="whatsapp" tam={16} /><span className="txt-wa">WhatsApp</span></button>
++                                  {!f.confirmada_en && (
++                                    <button type="button" data-accion="confirmar" className="sec chico" onClick={(e) => confirmar(f, e)}>Confirmó</button>
++                                  )}
++                                </span>
++                              )}
++                            </div>
++                          </td>
++                          <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span></td>
++                          <td data-label="Acción" className="acciones">
++                            {f.estado_asistencia === 'pendiente' ? (
++                              <>
++                                <button type="button" data-accion="asistio" className="ok-btn chico" onClick={(e) => marcar(f, 'asistio', e)}><Icono n="check" tam={15} />Asistió</button>
++                                <button type="button" data-accion="no_asistio" className="peligro chico" onClick={(e) => marcar(f, 'no_asistio', e)}><Icono n="x" tam={15} />No asistió</button>
++                                <button type="button" data-accion="cancelo" className="sec chico" onClick={(e) => marcar(f, 'cancelo', e)}><Icono n="x" tam={15} />Canceló</button>
++                              </>
++                            ) : (
++                              <button type="button" data-accion="reabrir" className="sec chico" title="Volver a pendiente si te equivocaste" onClick={(e) => reabrir(f, e)}><Icono n="refrescar" tam={14} />Corregir</button>
++                            )}
++                            {admin && <button type="button" data-accion="eliminar" className="icono-btn borrar" aria-label="Eliminar cita" onClick={(e) => eliminar(f, e)}><Icono n="papelera" tam={16} /></button>}
++                          </td>
++                        </tr>
++                      );
++                    })}
++                  </tbody>
++                </table>
++              )}
++            </div>
++            {visibles.length > 0 && <p className="tabla-pie">Mostrando {visibles.length} de {todas.length} citas</p>}
+           </div>
+-          <label htmlFor="a-servicio" className="sr">Servicio</label>
+-          <select id="a-servicio" className="filtro" value={fServicio} onChange={(e) => setFServicio(e.target.value)}>
+-            <option value="">Todos los servicios</option>
+-            <option value="sauna">Sauna</option>
+-            <option value="gimnasio">Gimnasio</option>
+-          </select>
+-          <label htmlFor="a-sede" className="sr">Sede</label>
+-          <select id="a-sede" className="filtro" value={fSede} onChange={(e) => setFSede(e.target.value)}>
+-            <option value="">Todas las sedes</option>
+-            <option value="Túpac Amaru">Túpac Amaru</option>
+-            <option value="Santa Rosa">Santa Rosa</option>
+-          </select>
+-          <label htmlFor="a-estado" className="sr">Estado</label>
+-          <select id="a-estado" className="filtro" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
+-            <option value="">Todos los estados</option>
+-            <option value="pendiente">Solo pendientes</option>
+-            <option value="atendida">Ya atendidas</option>
+-          </select>
+-          <label htmlFor="a-riesgo" className="chip-filtro">
+-            <input id="a-riesgo" type="checkbox" checked={soloRiesgo} onChange={(e) => setSoloRiesgo(e.target.checked)} />
+-            Solo alto riesgo
+-          </label>
+-          <button type="button" id="btn-agenda" className="sec" onClick={cargar}><Icono n="refrescar" tam={16} />Actualizar</button>
+-        </div>
++        </>
++      )}
+ 
+-        {porRecordar.length > 0 && (
+-          <div className="cola-recordar" role="status" data-cola>
+-            <span>
+-              <strong>{porRecordar.length} {porRecordar.length === 1 ? 'cita por recordar' : 'citas por recordar'}</strong>
+-              {' '}(empiezan en 2 horas o menos y aún no tienen recordatorio ni confirmación).
+-            </span>
+-            <button type="button" className="sec chico" data-accion="ver-cola" onClick={() => setSoloRecordar(!soloRecordar)}>
+-              {soloRecordar ? 'Ver todas' : 'Ver solo estas'}
+-            </button>
++      {vista === 'proximas' && (
++        <>
++          <div className="resumenes">
++            <Resumen icono="agenda" tono="azul" valor={vigentesProx.length} texto="Reservas próximas (30 días)" />
++            <Resumen icono="reloj" tono="naranja" valor={nSemana} texto="En los próximos 7 días" />
++            <Resumen icono="usuarios" tono="verde" valor={nOnline} texto="Reservadas por el cliente" />
++            <Resumen icono="alerta" tono="gris" valor={nSinConfirmar} texto="Sin confirmar con el cliente" />
+           </div>
+-        )}
+-
+-        <div className="tabla-wrap">
+-          {filas === null && <p className="vacio">Cargando…</p>}
+-          {filas && todas.length === 0 && (
+-            <div className="vacio"><Icono n="agenda" tam={32} /><p>No hay citas para este día.</p><small>Registra una reserva o revisa las solicitudes pendientes.</small></div>
+-          )}
+-          {filas && todas.length > 0 && visibles.length === 0 && (
+-            <div className="vacio"><Icono n="buscar" tam={32} /><p>Ninguna cita coincide con los filtros.</p></div>
+-          )}
+-          {visibles.length > 0 && (
+-            <table>
+-              <thead>
+-                <tr><th>Hora</th><th>Cliente</th><th>Servicio</th><th>Contacto</th><th>Estado</th><th>Acción</th></tr>
+-              </thead>
+-              <tbody>
+-                {visibles.map((f) => {
+-                  const nombre = f.clientes ? f.clientes.nombre : '—';
+-                  const falta = minutosParaRecordar(f, ahora);
+-                  return (
+-                    <tr key={f.id_cita} data-id={f.id_cita}>
+-                      <td data-label="Hora" className="hora">{new Date(f.fecha_hora_cita).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false })}</td>
+-                      <td data-label="Cliente">
+-                        <span className="persona">
++
++          <div className="tarjeta">
++            <div className="herramientas">{filtros}</div>
++            <p className="nota-prox">Las reservas se asignan solas: si una franja está llena, nadie más puede reservarla. Aquí solo supervisas y, si hace falta, anulas.</p>
++
++            {proximas === null && <p className="vacio">Cargando…</p>}
++            {proximas && vigentesProx.length === 0 && (
++              <div className="vacio"><Icono n="agenda" tam={32} /><p>No hay reservas próximas.</p><small>Cuando un cliente reserve, aparecerá aquí automáticamente.</small></div>
++            )}
++            {proximas && vigentesProx.length > 0 && grupos.length === 0 && (
++              <div className="vacio"><Icono n="buscar" tam={32} /><p>Ninguna reserva coincide con los filtros.</p></div>
++            )}
++
++            {grupos.map((g) => (
++              <section key={g.dia} className="prox-dia" data-dia-grupo={g.dia}>
++                <div className="prox-cab">
++                  <div className="prox-fecha"><b>{etiquetaDia(g.dia)}</b><span>{fechaLarga(g.dia)}</span></div>
++                  <span className="prox-cuenta">{g.citas.length} {g.citas.length === 1 ? 'reserva' : 'reservas'}</span>
++                  <button type="button" className="sec chico" data-accion="abrir-dia" onClick={() => abrirDia(g.dia)}>Abrir día</button>
++                </div>
++                <ul className="prox-lista">
++                  {g.citas.map((f) => {
++                    const nombre = f.clientes ? f.clientes.nombre : '—';
++                    const r = riesgoProx[f.id_cliente];
++                    return (
++                      <li key={f.id_cita} data-id={f.id_cita} className={`prox-item ${f.estado_asistencia}`}>
++                        <span className="prox-hora">{hhmm(f.fecha_hora_cita)}</span>
++                        <div className="prox-quien">
+                           <span className={`avatar ${tonoAvatar(nombre)}`} aria-hidden="true">{iniciales(nombre)}</span>
+-                          <span className="persona-txt">
+-                            <span>{nombre}
+-                              {f.estado_asistencia === 'pendiente' && riesgo[f.id_cliente] && riesgo[f.id_cliente].alto_riesgo && (
+-                                <span className="etq riesgo" data-riesgo="alto"
+-                                  title={`${riesgo[f.id_cliente].no_asistio} inasistencias en ${riesgo[f.id_cliente].total} citas de los últimos 30 días (${riesgo[f.id_cliente].tasa}%)`}>
++                          <div className="persona-txt">
++                            <span>{nombre}</span>
++                            <div className="prox-meta">
++                              <span className={`servicio ${f.servicio}`}><Icono n={f.servicio === 'sauna' ? 'sauna' : 'pesa'} tam={14} />{NOMBRE_SERVICIO[f.servicio] || f.servicio}</span>
++                              <small>Sede {f.sede}</small>
++                              {f.origen === 'cliente' && <span className="etq online">Reservó en línea</span>}
++                              {f.confirmada_en && <span className="etq asistio">Confirmó</span>}
++                              {!f.confirmada_en && f.recordatorio_enviado_en && <span className="etq">Recordado</span>}
++                              {altoRiesgo(f, riesgoProx) && (
++                                <span className="etq riesgo" data-riesgo="alto" title={`${r.no_asistio} inasistencias en ${r.total} citas de los últimos 30 días (${r.tasa}%)`}>
+                                   <Icono n="alerta" tam={12} />Alto riesgo
+                                 </span>
+                               )}
+-                            </span>
+-                            <small>Sede {f.sede}</small>
+-                          </span>
+-                        </span>
+-                      </td>
+-                      <td data-label="Servicio"><span className={`servicio ${f.servicio}`}><Icono n={f.servicio === 'sauna' ? 'sauna' : 'pesa'} tam={14} />{NOMBRE_SERVICIO[f.servicio] || f.servicio}</span></td>
+-                      <td data-label="Contacto">
+-                        <div className="contacto">
+-                          <span data-contacto>
+-                            {f.confirmada_en ? <span className="etq asistio">Confirmó</span>
+-                              : f.recordatorio_enviado_en ? <span className="etq">Recordado</span>
+-                              : falta !== null ? <span className="etq recordar" data-recordar>Recordar · faltan {textoFalta(falta)}</span>
+-                              : <span className="tenue">Sin contacto</span>}
+-                          </span>
++                            </div>
++                          </div>
++                        </div>
++                        <div className="prox-acc">
+                           {f.estado_asistencia === 'pendiente' && (
+-                            <span className="contacto-acc">
+-                              <button type="button" data-accion="whatsapp" className={`chico ${falta !== null || (riesgo[f.id_cliente] && riesgo[f.id_cliente].alto_riesgo) ? 'wa-destacado' : 'sec'}`} title="Enviar recordatorio por WhatsApp" aria-label="Enviar recordatorio por WhatsApp" onClick={(e) => recordar(f, e)}><Icono n="whatsapp" tam={16} /><span className="txt-wa">WhatsApp</span></button>
+-                              {!f.confirmada_en && (
+-                                <button type="button" data-accion="confirmar" className="sec chico" onClick={(e) => confirmar(f, e)}>Confirmó</button>
+-                              )}
+-                            </span>
++                            <button type="button" data-accion="whatsapp" className="sec chico" title="Enviar recordatorio por WhatsApp" aria-label="Enviar recordatorio por WhatsApp" onClick={(e) => recordar(f, e)}><Icono n="whatsapp" tam={16} /><span className="txt-wa">WhatsApp</span></button>
+                           )}
++                          <button type="button" data-accion="anular" className="chico anular" onClick={(e) => anular(f, e)}><Icono n="x" tam={14} />Anular</button>
+                         </div>
+-                      </td>
+-                      <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span></td>
+-                      <td data-label="Acción" className="acciones">
+-                        {f.estado_asistencia === 'pendiente' ? (
+-                          <>
+-                            <button type="button" data-accion="asistio" className="ok-btn chico" onClick={(e) => marcar(f, 'asistio', e)}><Icono n="check" tam={15} />Asistió</button>
+-                            <button type="button" data-accion="no_asistio" className="peligro chico" onClick={(e) => marcar(f, 'no_asistio', e)}><Icono n="x" tam={15} />No asistió</button>
+-                            <button type="button" data-accion="cancelo" className="sec chico" onClick={(e) => marcar(f, 'cancelo', e)}><Icono n="x" tam={15} />Canceló</button>
+-                          </>
+-                        ) : (
+-                          <button type="button" data-accion="reabrir" className="sec chico" title="Volver a pendiente si te equivocaste" onClick={(e) => reabrir(f, e)}><Icono n="refrescar" tam={14} />Corregir</button>
+-                        )}
+-                        {admin && <button type="button" data-accion="eliminar" className="icono-btn borrar" aria-label="Eliminar cita" onClick={(e) => eliminar(f, e)}><Icono n="papelera" tam={16} /></button>}
+-                      </td>
+-                    </tr>
+-                  );
+-                })}
+-              </tbody>
+-            </table>
+-          )}
+-        </div>
+-        {visibles.length > 0 && <p className="tabla-pie">Mostrando {visibles.length} de {todas.length} citas</p>}
+-      </div>
+-    </>
++                      </li>
++                    );
++                  })}
++                </ul>
++              </section>
++            ))}
++          </div>
++        </>
++      )}
++    </div>
+   );
+-}
+\ No newline at end of file
++}
+diff --git a/web/src/components/agenda.css b/web/src/components/agenda.css
+new file mode 100644
+index 0000000..8134d70
+--- /dev/null
++++ b/web/src/components/agenda.css
+@@ -0,0 +1,101 @@
++/* ===== Agenda · vista diaria y próximas reservas =====
++   Todo va bajo .agenda para no alterar otras tablas de la app. Usa los tokens de styles.css. */
++.agenda { --riel-pendiente: #B8C2CC; --riel-asistio: var(--verde); --riel-no: var(--naranja); }
++
++/* Selector de vista (segmentado) */
++.agenda .segmento { display: inline-flex; padding: 4px; gap: 2px; border-radius: 14px; background: var(--gris-suave); }
++.agenda .segmento button { min-height: 38px; padding: 7px 16px; background: transparent; color: var(--suave); border-radius: 10px; font-weight: 600; }
++.agenda .segmento button:hover { background: rgba(255, 255, 255, .6); color: var(--neutro); }
++.agenda .segmento button[aria-selected="true"] { background: #fff; color: var(--azul-fuerte); box-shadow: 0 1px 3px rgba(20, 40, 60, .14); }
++.agenda .seg-n { min-width: 22px; padding: 1px 7px; border-radius: 99px; background: var(--naranja-suave); color: var(--naranja-texto); font-size: .72rem; line-height: 1.5; text-align: center; }
++
++/* Tira de los próximos días: cada chip dice cuántas reservas hay */
++.agenda .tira { display: flex; gap: 8px; overflow-x: auto; margin: 0 -2px 16px; padding: 2px 2px 8px; scroll-snap-type: x proximity; scrollbar-width: thin; }
++.agenda button.dia-chip { position: relative; flex: 0 0 auto; width: 64px; min-height: 0; padding: 10px 0 9px; flex-direction: column; gap: 1px;
++  background: #fff; color: var(--neutro); border: 1px solid var(--borde); border-radius: 16px; scroll-snap-align: start; }
++.agenda button.dia-chip:hover { background: var(--azul-suave); border-color: #BFE3F4; }
++.agenda .dia-chip small { font-size: .72rem; font-weight: 500; color: var(--suave); }
++.agenda .dia-chip b { font: 600 1.3rem/1.15 var(--f-titulo); font-variant-numeric: tabular-nums; }
++.agenda .dia-chip .cupo { min-width: 22px; height: 18px; margin-top: 3px; padding: 0 6px; border-radius: 99px; font-size: .7rem; font-weight: 700; line-height: 18px;
++  background: var(--gris-suave); color: #3F4A55; }
++.agenda .dia-chip .cupo.hay { background: var(--naranja-suave); color: var(--naranja-texto); }
++.agenda .dia-chip .cupo.vacio-dia { background: transparent; color: #A3ADB7; font-weight: 500; }
++.agenda button.dia-chip.activo { background: var(--azul-fuerte); border-color: var(--azul-fuerte); color: #fff; box-shadow: 0 6px 16px rgba(10, 106, 148, .28); }
++.agenda .dia-chip.activo small { color: rgba(255, 255, 255, .82); }
++.agenda .dia-chip.activo .cupo { background: rgba(255, 255, 255, .22); color: #fff; }
++.agenda .dia-chip.activo .cupo.vacio-dia { background: transparent; color: rgba(255, 255, 255, .6); }
++
++/* Avance del día: una sola barra con los estados */
++.agenda .avance { margin: 0 0 18px; }
++.agenda .avance-barra { display: flex; height: 10px; border-radius: 99px; overflow: hidden; gap: 2px; background: var(--gris-suave); }
++.agenda .avance-barra span { display: block; height: 100%; min-width: 0; transition: width .4s ease; }
++.agenda .avance-barra .a-asistio { background: var(--verde); } .agenda .avance-barra .a-no { background: var(--naranja); }
++.agenda .avance-barra .a-cancelo { background: #8995A1; } .agenda .avance-barra .a-pend { background: #CBD5DD; }
++.agenda .avance-leyenda { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 8px 2px 0; font-size: .82rem; color: var(--suave); }
++.agenda .avance-leyenda b { color: var(--neutro); font-variant-numeric: tabular-nums; }
++.agenda .avance-leyenda i { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; }
++
++/* Resumen más ligero */
++.agenda .resumenes { gap: 12px; margin-bottom: 18px; }
++.agenda .resumen { padding: 14px 16px; border-radius: 18px; box-shadow: none; }
++.agenda .resumen-num { font-size: 1.7rem; }
++
++/* Herramientas */
++.agenda .herramientas { padding-bottom: 14px; margin-bottom: 6px; border-bottom: 1px solid var(--borde); }
++.agenda .dia-nav input { min-height: 40px; }
++
++/* Tabla diaria: cada fila es una tarjeta con riel de color según el estado */
++.agenda .tabla-wrap table { border-collapse: separate; border-spacing: 0 8px; margin-top: -4px; }
++.agenda .tabla-wrap th { background: transparent; padding: 6px 12px; border: 0; font-weight: 600; color: var(--suave); }
++.agenda .tabla-wrap th:first-child, .agenda .tabla-wrap th:last-child { border-radius: 0; }
++.agenda .tabla-wrap td { padding: 12px; border: 0; background: #fff; border-top: 1px solid var(--borde); border-bottom: 1px solid var(--borde); }
++.agenda .tabla-wrap tbody tr:hover { background: transparent; }
++.agenda .tabla-wrap tbody tr:hover td { background: #F8FBFD; }
++.agenda .tabla-wrap td:first-child { border-left: 1px solid var(--borde); border-radius: 14px 0 0 14px; box-shadow: inset 5px 0 0 var(--riel-pendiente); padding-left: 18px; }
++.agenda .tabla-wrap td:last-child { border-right: 1px solid var(--borde); border-radius: 0 14px 14px 0; }
++.agenda .tabla-wrap tr.asistio td:first-child { box-shadow: inset 5px 0 0 var(--riel-asistio); }
++.agenda .tabla-wrap tr.no_asistio td:first-child { box-shadow: inset 5px 0 0 var(--riel-no); }
++.agenda .tabla-wrap tr.cancelo td { color: var(--suave); }
++.agenda .tabla-wrap tr.cancelo .persona { text-decoration: line-through; text-decoration-color: #B8C2CC; }
++.agenda .hora { font: 600 1.15rem var(--f-titulo); color: var(--azul-fuerte); }
++.agenda .en-curso { display: inline-flex; align-items: center; gap: 6px; margin-top: 3px; font: 600 .7rem var(--f-cuerpo); color: var(--verde-fuerte); }
++.agenda .en-curso::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--verde); box-shadow: 0 0 0 3px rgba(22, 163, 74, .2); }
++.agenda .hora-col { display: flex; flex-direction: column; }
++.agenda .avatar { width: 38px; height: 38px; }
++.agenda .acciones { white-space: nowrap; }
++
++/* Próximas reservas */
++.agenda .prox-dia { margin-bottom: 22px; }
++.agenda .prox-cab { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; padding: 0 2px; }
++.agenda .prox-fecha { display: flex; align-items: baseline; gap: 10px; flex: 1 1 auto; }
++.agenda .prox-fecha b { font: 600 1.15rem var(--f-titulo); text-transform: capitalize; }
++.agenda .prox-fecha span { color: var(--suave); font-size: .88rem; }
++.agenda .prox-cuenta { padding: 3px 11px; border-radius: 99px; background: var(--azul-suave); color: var(--azul-fuerte); font-size: .78rem; font-weight: 700; }
++.agenda .prox-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
++.agenda .prox-item { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; padding: 12px 14px 12px 18px;
++  background: #fff; border: 1px solid var(--borde); border-radius: 14px; box-shadow: inset 5px 0 0 var(--riel-pendiente); }
++.agenda .prox-item.asistio { box-shadow: inset 5px 0 0 var(--riel-asistio); }
++.agenda .prox-item.no_asistio { box-shadow: inset 5px 0 0 var(--riel-no); }
++.agenda .prox-hora { font: 600 1.15rem var(--f-titulo); color: var(--azul-fuerte); font-variant-numeric: tabular-nums; }
++.agenda .prox-quien { display: flex; align-items: center; gap: 12px; min-width: 0; }
++.agenda .prox-quien .persona-txt { min-width: 0; }
++.agenda .prox-quien .persona-txt > span { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.agenda .prox-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 5px; }
++.agenda .prox-acc { display: flex; align-items: center; gap: 6px; }
++.agenda .etq.online { background: var(--azul-suave); color: var(--azul-fuerte); }
++.agenda button.anular { background: #fff; color: var(--error); border-color: #F5B5AF; }
++.agenda button.anular:hover { background: var(--error-suave); }
++.agenda .nota-prox { margin: 0 0 16px; padding: 10px 14px; border-radius: var(--radio-s); background: var(--azul-suave); color: #17435A; font-size: .88rem; }
++
++@media (max-width: 760px) {
++  .agenda .segmento { width: 100%; } .agenda .segmento button { flex: 1; padding: 7px 8px; }
++  .agenda .tabla-wrap tbody tr { background: #fff; box-shadow: inset 5px 0 0 var(--riel-pendiente); padding-left: 18px; border-radius: 14px; }
++  .agenda .tabla-wrap tbody tr.asistio { box-shadow: inset 5px 0 0 var(--riel-asistio); }
++  .agenda .tabla-wrap tbody tr.no_asistio { box-shadow: inset 5px 0 0 var(--riel-no); }
++  .agenda .tabla-wrap td, .agenda .tabla-wrap td:first-child, .agenda .tabla-wrap td:last-child { background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 5px 0; }
++  .agenda .tabla-wrap tbody tr:hover td { background: transparent; }
++  .agenda .hora-col { align-items: flex-end; }
++  .agenda .prox-item { grid-template-columns: 54px minmax(0, 1fr); }
++  .agenda .prox-acc { grid-column: 1 / -1; flex-wrap: wrap; }
++}
++@media (prefers-reduced-motion: reduce) { .agenda .avance-barra span { transition: none; } }
+diff --git a/web/src/lib/logica.js b/web/src/lib/logica.js
+index 3e462f5..0fc44f4 100644
+--- a/web/src/lib/logica.js
++++ b/web/src/lib/logica.js
+@@ -244,4 +244,46 @@ export function detalleBitacora(ev = {}) {
+     default:
+       return '';
+   }
+-}
+\ No newline at end of file
++}
++// ---------- Agenda: reservas próximas ----------
++// Clave de día local (AAAA-MM-DD) de una fecha ISO.
++export function claveDia(iso) {
++  const d = new Date(iso);
++  const p = (n) => String(n).padStart(2, '0');
++  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
++}
++
++// Citas vigentes (todo menos «Canceló»): son las que ocupan cupo.
++export function citasVigentes(citas = []) {
++  return citas.filter((c) => c.estado_asistencia !== 'cancelo');
++}
++
++// Cuenta citas vigentes por día local: { 'AAAA-MM-DD': n }.
++export function contarPorDia(citas = []) {
++  const m = {};
++  citasVigentes(citas).forEach((c) => { const k = claveDia(c.fecha_hora_cita); m[k] = (m[k] || 0) + 1; });
++  return m;
++}
++
++// Agrupa citas vigentes por día local, ordenadas por fecha y hora.
++export function agruparPorDia(citas = []) {
++  const grupos = new Map();
++  [...citasVigentes(citas)]
++    .sort((a, b) => new Date(a.fecha_hora_cita) - new Date(b.fecha_hora_cita))
++    .forEach((c) => {
++      const k = claveDia(c.fecha_hora_cita);
++      if (!grupos.has(k)) grupos.set(k, []);
++      grupos.get(k).push(c);
++    });
++  return [...grupos.entries()].map(([dia, citas]) => ({ dia, citas }));
++}
++
++// Los N días siguientes a partir de una clave AAAA-MM-DD (incluye el día inicial).
++export function diasDesde(dia, n = 14) {
++  const base = new Date(`${dia}T12:00:00`);
++  return Array.from({ length: n }, (_, i) => {
++    const d = new Date(base);
++    d.setDate(base.getDate() + i);
++    return claveDia(d);
++  });
++}
+diff --git a/web/tests/logica.test.js b/web/tests/logica.test.js
+index b9a55aa..729b8a3 100644
+--- a/web/tests/logica.test.js
++++ b/web/tests/logica.test.js
+@@ -127,3 +127,21 @@ test('textoFalta: minutos y horas legibles', () => {
+   assert.equal(textoFalta(60), '1 h');
+   assert.equal(textoFalta(95), '1 h 35 min');
+ });
++
++test('agenda: agrupa por día, ignora canceladas y cuenta por día', async () => {
++  const { agruparPorDia, contarPorDia, citasVigentes, diasDesde, claveDia } = await import('../src/lib/logica.js');
++  const f = (d, h) => new Date(2026, 10, d, h, 0).toISOString();
++  const citas = [
++    { id_cita: 'a', fecha_hora_cita: f(26, 18), estado_asistencia: 'pendiente' },
++    { id_cita: 'b', fecha_hora_cita: f(25, 9), estado_asistencia: 'pendiente' },
++    { id_cita: 'c', fecha_hora_cita: f(25, 7), estado_asistencia: 'pendiente' },
++    { id_cita: 'd', fecha_hora_cita: f(25, 12), estado_asistencia: 'cancelo' }
++  ];
++  assert.equal(citasVigentes(citas).length, 3);
++  assert.deepEqual(contarPorDia(citas), { '2026-11-25': 2, '2026-11-26': 1 });
++  const g = agruparPorDia(citas);
++  assert.deepEqual(g.map((x) => x.dia), ['2026-11-25', '2026-11-26']);
++  assert.deepEqual(g[0].citas.map((x) => x.id_cita), ['c', 'b']);   // ordenadas por hora
++  assert.equal(claveDia(f(5, 23)), '2026-11-05');
++  assert.deepEqual(diasDesde('2026-11-29', 3), ['2026-11-29', '2026-11-30', '2026-12-01']);
++});

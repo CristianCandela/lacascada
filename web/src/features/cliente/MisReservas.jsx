@@ -185,6 +185,14 @@ export default function MisReservas({ perfil, onAviso }) {
                   </strong>{' '}
                   — Sede {reserva.sede}
                   <div>{formatearFechaPe(reserva.fecha_hora_cita || reserva.fecha_hora)}</div>
+                  {reserva.estado_pago === 'pendiente' && (reserva.estado_asistencia === 'pendiente') && (
+                    <div className="cli-pago-nota" data-pago="pendiente">
+                      Por pagar{reserva.tarifa_aplicada != null ? `: S/ ${Number(reserva.tarifa_aplicada).toFixed(2)}` : ''} · se paga en recepción al llegar (efectivo, Yape o Plin)
+                    </div>
+                  )}
+                  {reserva.estado_pago === 'pagada' && reserva.tarifa_aplicada != null && reserva.estado_asistencia !== 'cancelo' && (
+                    <div className="cli-pago-nota ok" data-pago="pagada">Pagado: S/ {Number(reserva.tarifa_aplicada).toFixed(2)}</div>
+                  )}
                 </div>
                 <div className="cli-acciones">
                   <span className={`cli-badge ${claseBadgeEstado(reserva.estado || reserva.estado_asistencia)}`}>

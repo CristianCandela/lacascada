@@ -1,0 +1,446 @@
+diff --git a/supabase/migrations/20261125000000_sauna_cliente_cobro.sql b/supabase/migrations/20261125000000_sauna_cliente_cobro.sql
+new file mode 100644
+index 0000000..e04a79d
+--- /dev/null
++++ b/supabase/migrations/20261125000000_sauna_cliente_cobro.sql
+@@ -0,0 +1,196 @@
++-- =====================================================================
++-- Cobro de la reserva de sauna hecha por el cliente (pago en recepción).
++--  * reservar_sauna: la cita nace con estado_pago = 'pendiente' y la tarifa de afiliado
++--    (reservar exige membresía vigente). El monto lo calcula el servidor.
++--  * mis_reservas: ahora devuelve estado_pago y tarifa_aplicada para mostrarlos al cliente.
++--  * buscar_cliente: las citas de hoy incluyen tarifa_aplicada (para mostrar cuánto cobrar).
++--  * cobrar_cita_sauna(p_id_cita, p_medio): recepción/admin cobra la cita pendiente (efectivo, yape o plin),
++--    registra el pago y marca la cita como pagada.
++--  * Las citas futuras ya creadas por clientes sin pago registrado pasan a 'pendiente' con su tarifa.
++--  * Los ingresos del día solo cuentan citas 'pagada' (ya era así), por lo que lo pendiente no suma.
++-- Tarifas de ejemplo en la tabla `tarifas`: ajustar a las reales.
++-- =====================================================================
++
++-- ---------- reservar_sauna (cliente): nace pendiente de pago ----------
++-- Reserva de sauna del propio cliente (franja de una hora). Queda con el pago PENDIENTE: se cobra en recepción. El aforo y los duplicados
++-- los controlan los disparadores ya existentes (validar_aforo, citas_sin_duplicado).
++create or replace function public.reservar_sauna(p_sede text, p_fecha_hora timestamptz)
++returns uuid
++language plpgsql
++volatile
++security definer
++set search_path = public
++as $$
++declare
++  v_id    uuid := public.id_cliente_actual();
++  v_slot  timestamptz := date_trunc('hour', p_fecha_hora);
++  v_local timestamp := (date_trunc('hour', p_fecha_hora) at time zone 'America/Lima');
++  s       public.sedes;
++  v_cli   public.clientes;
++  v_cita  uuid;
++begin
++  if public.rol_actual() is distinct from 'cliente' or v_id is null then
++    raise exception 'Acceso denegado: solo los clientes reservan por esta vía' using errcode = '42501';
++  end if;
++  select * into v_cli from public.clientes where id_cliente = v_id;
++  if v_cli.estado <> 'activo' then
++    raise exception 'Tu cuenta no está activa. Acude a recepción.';
++  end if;
++  if v_slot <= now() then
++    raise exception 'Elige un horario futuro.';
++  end if;
++  if v_slot > now() + interval '30 days' then
++    raise exception 'Solo se puede reservar con hasta 30 días de anticipación.';
++  end if;
++  select * into s from public.sedes where sede = p_sede;
++  if not found then
++    raise exception 'Sede no válida.';
++  end if;
++  if v_local::time < s.abre or v_local::time >= s.cierra then
++    raise exception 'Ese horario está fuera del horario de atención.';
++  end if;
++  if public.membresia_vigente(v_id, v_local::date) is null then
++    raise exception 'Tu membresía no cubre esa fecha.';
++  end if;
++
++  insert into public.citas (id_cliente, servicio, sede, fecha_hora_cita, estado_asistencia, registrado_por, origen,
++                            estado_pago, tarifa_aplicada)
++  values (v_id, 'sauna', p_sede, v_slot, 'pendiente', auth.uid(), 'cliente',
++          'pendiente', public.tarifa('sauna_afiliado'))
++  returning id_cita into v_cita;
++  return v_cita;
++end;
++$$;
++revoke all on function public.reservar_sauna(text, timestamptz) from public, anon;
++grant execute on function public.reservar_sauna(text, timestamptz) to authenticated;
++
++
++-- ---------- buscar_cliente: incluye tarifa_aplicada en las citas de hoy ----------
++create or replace function public.buscar_cliente(p_texto text)
++returns json
++language plpgsql
++stable
++security definer
++set search_path = public
++as $$
++declare
++  t      text := trim(coalesce(p_texto, ''));
++  v_cod  text;
++  v_res  json;
++begin
++  if not public.es_personal() then
++    raise exception 'Acceso denegado: solo el personal' using errcode = '42501';
++  end if;
++  if t = '' then
++    return '[]'::json;
++  end if;
++  if t ~ '^[A-Za-z]{0,3}-?[0-9]{3,6}$' and t !~ '^[0-9]{8}$' then
++    v_cod := 'C-' || regexp_replace(t, '^[A-Za-z]*-?', '');
++  end if;
++
++  select coalesce(json_agg(f order by f.nombre), '[]'::json) into v_res
++  from (
++    select c.id_cliente, c.nombre, c.dni, c.telefono, c.codigo_cliente,
++           (select max(m.fin) from public.membresias m where m.id_cliente = c.id_cliente) as membresia_fin,
++           (select max(k.entrada_en) from public.checkins k where k.id_cliente = c.id_cliente) as ultima_entrada,
++           public.pase_hoy(c.id_cliente) as pase_hoy,
++           coalesce((select json_agg(json_build_object('id_cita', ci.id_cita, 'fecha_hora_cita', ci.fecha_hora_cita,
++                                                       'estado_pago', ci.estado_pago, 'tarifa_aplicada', ci.tarifa_aplicada,
++                                                       'estado_asistencia', ci.estado_asistencia)
++                                     order by ci.fecha_hora_cita)
++                    from public.citas ci
++                    where ci.id_cliente = c.id_cliente and ci.servicio = 'sauna'
++                      and (ci.fecha_hora_cita at time zone 'America/Lima')::date = public.hoy_lima()
++                      and ci.estado_asistencia <> 'cancelo'), '[]'::json) as citas_hoy
++    from public.clientes c
++    where case
++            when t ~ '^[0-9]{8}$' then c.dni = t
++            when v_cod is not null then upper(c.codigo_cliente) = upper(v_cod)
++            else translate(lower(c.nombre), 'áéíóúüñ', 'aeiouun') like '%' || translate(lower(t), 'áéíóúüñ', 'aeiouun') || '%'
++          end
++    order by c.nombre
++    limit 8
++  ) f;
++  return v_res;
++end;
++$$;
++revoke all on function public.buscar_cliente(text) from public, anon;
++grant execute on function public.buscar_cliente(text) to authenticated;
++
++-- ---------- Citas ya creadas por clientes sin cobro registrado ----------
++update public.citas c
++set estado_pago = 'pendiente', tarifa_aplicada = public.tarifa('sauna_afiliado')
++where c.origen = 'cliente' and c.servicio = 'sauna' and c.estado_pago = 'pagada' and c.tarifa_aplicada is null
++  and c.estado_asistencia = 'pendiente' and c.fecha_hora_cita > now()
++  and not exists (select 1 from public.pagos p where p.id_cita = c.id_cita);
++
++-- ---------- mis_reservas con datos de pago (cambia el tipo de retorno: se recrea) ----------
++drop function if exists public.mis_reservas();
++create or replace function public.mis_reservas()
++returns table (id_cita uuid, servicio text, sede text, fecha_hora_cita timestamptz, estado_asistencia text,
++               estado_pago text, tarifa_aplicada numeric)
++language plpgsql
++stable
++security definer
++set search_path = public
++as $$
++declare
++  v_id uuid := public.id_cliente_actual();
++begin
++  if public.rol_actual() is distinct from 'cliente' or v_id is null then
++    raise exception 'Acceso denegado: solo los clientes' using errcode = '42501';
++  end if;
++  return query
++  select c.id_cita, c.servicio, c.sede, c.fecha_hora_cita, c.estado_asistencia, c.estado_pago, c.tarifa_aplicada
++  from public.citas c
++  where c.id_cliente = v_id and c.servicio = 'sauna'
++  order by c.fecha_hora_cita desc
++  limit 100;
++end;
++$$;
++revoke all on function public.mis_reservas() from public, anon;
++grant execute on function public.mis_reservas() to authenticated;
++
++-- ---------- Cobro en recepción ----------
++create or replace function public.cobrar_cita_sauna(p_id_cita uuid, p_medio text)
++returns json
++language plpgsql
++volatile
++security definer
++set search_path = public
++as $$
++declare
++  v_ci    public.citas;
++  v_monto numeric;
++  v_pago  uuid;
++begin
++  if not public.es_personal() then
++    raise exception 'Acceso denegado: solo el personal' using errcode = '42501';
++  end if;
++  if p_medio not in ('efectivo', 'yape', 'plin') then
++    raise exception 'Medio de pago no válido';
++  end if;
++  select * into v_ci from public.citas where id_cita = p_id_cita for update;
++  if not found or v_ci.servicio <> 'sauna' then
++    raise exception 'La cita no existe.';
++  end if;
++  if v_ci.estado_asistencia = 'cancelo' then
++    raise exception 'La cita fue cancelada.';
++  end if;
++  if v_ci.estado_pago = 'pagada' then
++    raise exception 'La cita ya está pagada.';
++  end if;
++  v_monto := coalesce(v_ci.tarifa_aplicada, public.tarifa('sauna_regular'));
++  insert into public.pagos (id_cliente, id_cita, concepto, monto, medio)
++  values (v_ci.id_cliente, p_id_cita, 'sauna', v_monto, p_medio)
++  returning id_pago into v_pago;
++  update public.citas set estado_pago = 'pagada', tarifa_aplicada = v_monto where id_cita = p_id_cita;
++  perform public.registrar_evento('pagos', 'pago', v_pago, v_ci.id_cliente,
++                                  jsonb_build_object('concepto', 'sauna', 'monto', v_monto, 'medio', p_medio, 'id_cita', p_id_cita));
++  return json_build_object('ok', true, 'monto', v_monto, 'medio', p_medio);
++end;
++$$;
++revoke all on function public.cobrar_cita_sauna(uuid, text) from public, anon;
++grant execute on function public.cobrar_cita_sauna(uuid, text) to authenticated;
++
++notify pgrst, 'reload schema';
+diff --git a/web/src/components/Agenda.jsx b/web/src/components/Agenda.jsx
+index d5f71fd..6eb2b9e 100644
+--- a/web/src/components/Agenda.jsx
++++ b/web/src/components/Agenda.jsx
+@@ -9,7 +9,7 @@ import './agenda.css';
+ 
+ const ETIQUETAS = { asistio: 'Asistió', no_asistio: 'No asistió', cancelo: 'Canceló', pendiente: 'Pendiente' };
+ const NOMBRE_SERVICIO = { sauna: 'Sauna', gimnasio: 'Gimnasio' };
+-const COLUMNAS = 'id_cita, id_cliente, servicio, sede, fecha_hora_cita, estado_asistencia, origen, recordatorio_enviado_en, confirmada_en, clientes(nombre, telefono)';
++const COLUMNAS = 'id_cita, id_cliente, servicio, sede, fecha_hora_cita, estado_asistencia, origen, estado_pago, tarifa_aplicada, recordatorio_enviado_en, confirmada_en, clientes(nombre, telefono)';
+ const DIAS_TIRA = 14;     // días que muestra la tira de arriba
+ const DIAS_PROXIMAS = 31; // reservar_sauna permite hasta 30 días de anticipación
+ 
+@@ -29,6 +29,10 @@ function etiquetaDia(dia) {
+   return new Date(`${dia}T12:00:00`).toLocaleDateString('es-PE', { weekday: 'long' });
+ }
+ 
++// Cita de sauna con el pago pendiente (se cobra en recepción).
++const porCobrar = (f) => f.servicio === 'sauna' && f.estado_pago === 'pendiente' && f.estado_asistencia !== 'cancelo';
++const textoCobro = (f) => `Por cobrar${f.tarifa_aplicada != null ? ` · S/ ${Number(f.tarifa_aplicada).toFixed(2)}` : ''}`;
++
+ function Resumen({ icono, tono, valor, texto }) {
+   return (
+     <div className={`resumen ${tono}`}>
+@@ -390,7 +394,7 @@ export default function Agenda({ perfil, onAviso }) {
+                               )}
+                             </div>
+                           </td>
+-                          <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span></td>
++                          <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span>{porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}</td>
+                           <td data-label="Acción" className="acciones">
+                             {f.estado_asistencia === 'pendiente' ? (
+                               <>
+@@ -458,6 +462,7 @@ export default function Agenda({ perfil, onAviso }) {
+                               <span className={`servicio ${f.servicio}`}><Icono n={f.servicio === 'sauna' ? 'sauna' : 'pesa'} tam={14} />{NOMBRE_SERVICIO[f.servicio] || f.servicio}</span>
+                               <small>Sede {f.sede}</small>
+                               {f.origen === 'cliente' && <span className="etq online">Reservó en línea</span>}
++                              {porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}
+                               {f.confirmada_en && <span className="etq asistio">Confirmó</span>}
+                               {!f.confirmada_en && f.recordatorio_enviado_en && <span className="etq">Recordado</span>}
+                               {altoRiesgo(f, riesgoProx) && (
+diff --git a/web/src/components/agenda.css b/web/src/components/agenda.css
+index 8134d70..2efe032 100644
+--- a/web/src/components/agenda.css
++++ b/web/src/components/agenda.css
+@@ -99,3 +99,5 @@
+   .agenda .prox-acc { grid-column: 1 / -1; flex-wrap: wrap; }
+ }
+ @media (prefers-reduced-motion: reduce) { .agenda .avance-barra span { transition: none; } }
++
++.agenda .por-cobrar { margin-left: 6px; white-space: nowrap; }
+diff --git a/web/src/features/cliente/MisReservas.jsx b/web/src/features/cliente/MisReservas.jsx
+index b8e6764..af1cd2d 100644
+--- a/web/src/features/cliente/MisReservas.jsx
++++ b/web/src/features/cliente/MisReservas.jsx
+@@ -185,6 +185,14 @@ export default function MisReservas({ perfil, onAviso }) {
+                   </strong>{' '}
+                   — Sede {reserva.sede}
+                   <div>{formatearFechaPe(reserva.fecha_hora_cita || reserva.fecha_hora)}</div>
++                  {reserva.estado_pago === 'pendiente' && (reserva.estado_asistencia === 'pendiente') && (
++                    <div className="cli-pago-nota" data-pago="pendiente">
++                      Por pagar{reserva.tarifa_aplicada != null ? `: S/ ${Number(reserva.tarifa_aplicada).toFixed(2)}` : ''} · se paga en recepción al llegar (efectivo, Yape o Plin)
++                    </div>
++                  )}
++                  {reserva.estado_pago === 'pagada' && reserva.tarifa_aplicada != null && reserva.estado_asistencia !== 'cancelo' && (
++                    <div className="cli-pago-nota ok" data-pago="pagada">Pagado: S/ {Number(reserva.tarifa_aplicada).toFixed(2)}</div>
++                  )}
+                 </div>
+                 <div className="cli-acciones">
+                   <span className={`cli-badge ${claseBadgeEstado(reserva.estado || reserva.estado_asistencia)}`}>
+diff --git a/web/src/features/cliente/estilos.css b/web/src/features/cliente/estilos.css
+index 031303d..d245ed3 100644
+--- a/web/src/features/cliente/estilos.css
++++ b/web/src/features/cliente/estilos.css
+@@ -194,4 +194,6 @@
+ .cli-badge-neutro {
+   background-color: #f3f4f6;
+   color: #374151;
+-}
+\ No newline at end of file
++}
++.cli-pago-nota { margin-top: 4px; font-size: .84rem; color: #92400E; }
++.cli-pago-nota.ok { color: #166534; }
+diff --git a/web/src/features/cliente/mock.js b/web/src/features/cliente/mock.js
+index 1f39987..6708897 100644
+--- a/web/src/features/cliente/mock.js
++++ b/web/src/features/cliente/mock.js
+@@ -317,7 +317,9 @@ export const mock = {
+             servicio: c.servicio,
+             sede: c.sede,
+             fecha_hora_cita: c.fecha_hora_cita,
+-            estado_asistencia: c.estado_asistencia
++            estado_asistencia: c.estado_asistencia,
++            estado_pago: c.estado_pago || 'pagada',
++            tarifa_aplicada: c.tarifa_aplicada === undefined ? null : c.tarifa_aplicada
+           }))
+       );
+     },
+@@ -355,7 +357,9 @@ export const mock = {
+         fecha_hora_cita: iso,
+         fecha_hora_registro: new Date().toISOString(),
+         estado_asistencia: 'pendiente',
+-        origen: 'cliente'
++        origen: 'cliente',
++        estado_pago: 'pendiente',      // se cobra en recepción
++        tarifa_aplicada: 15            // tarifa de afiliado (reservar exige membresía vigente)
+       };
+       db.citas.push(cita);
+       if (ctx.registrar) {
+diff --git a/web/src/features/recepcion/Checkin.jsx b/web/src/features/recepcion/Checkin.jsx
+index bcb2980..3c67996 100644
+--- a/web/src/features/recepcion/Checkin.jsx
++++ b/web/src/features/recepcion/Checkin.jsx
+@@ -22,6 +22,7 @@ export default function Checkin({ onAviso }) {
+   const [recientes, setRecientes] = useState([]);
+   const [ok, setOk] = useState('');
+   const [ocupado, setOcupado] = useState(false);
++  const [medio, setMedio] = useState('efectivo');
+ 
+   const aviso = (m) => onAviso && onAviso(m);
+ 
+@@ -80,6 +81,16 @@ export default function Checkin({ onAviso }) {
+     recargarFicha();
+   }
+ 
++  // Cobra una reserva de sauna hecha por el cliente (nace con el pago pendiente).
++  async function cobrarCita(cita) {
++    setOcupado(true);
++    const r = await supabase.rpc('cobrar_cita_sauna', { p_id_cita: cita.id_cita, p_medio: medio });
++    setOcupado(false);
++    if (r.error) { aviso(mensajeError(r.error)); return; }
++    aviso(''); setOk(`Cobro registrado (${medio}): S/ ${Number(r.data && r.data.monto != null ? r.data.monto : cita.tarifa_aplicada || 0).toFixed(2)}.`);
++    recargarFicha();
++  }
++
+   const haceUnaHora = Date.now() - 3600000;
+   const ultimaHora = recientes.filter((r) => new Date(r.entrada_en).getTime() >= haceUnaHora).length;
+ 
+@@ -196,7 +207,7 @@ export default function Checkin({ onAviso }) {
+ 
+               <div className="rec-bloque">
+                 <div className="rec-bloque-cab">
+-                  <div><h3>2. Sauna</h3><small>Siempre con reserva pagada. No exige membresía.</small></div>
++                  <div><h3>2. Sauna</h3><small>Se cobra aquí si el cliente reservó en línea. No exige membresía para entrar.</small></div>
+                   <span className="rec-etiqueta">{f.citas_hoy.length} TURNO(S) HOY</span>
+                 </div>
+                 {f.citas_hoy.length === 0 && <p className="rec-nota">Sin citas de sauna hoy.</p>}
+@@ -204,6 +215,19 @@ export default function Checkin({ onAviso }) {
+                   {f.citas_hoy.map((c) => (
+                     <li key={c.id_cita} className="rec-cita">
+                       <div><strong className="rec-num">{hhmm(c.fecha_hora_cita)}</strong><small>{etiquetaPago[c.estado_pago]} · {etiquetaAsist[c.estado_asistencia]}</small></div>
++                      {c.estado_asistencia === 'pendiente' && c.estado_pago === 'pendiente' && (
++                        <span className="rec-cobrar">
++                          <label htmlFor={`medio-${c.id_cita}`} className="sr">Medio de pago</label>
++                          <select id={`medio-${c.id_cita}`} value={medio} onChange={(e) => setMedio(e.target.value)} aria-label="Medio de pago">
++                            <option value="efectivo">Efectivo</option>
++                            <option value="yape">Yape</option>
++                            <option value="plin">Plin</option>
++                          </select>
++                          <button type="button" data-accion="cobrar-cita" className="rec-btn-nar" disabled={ocupado} onClick={() => cobrarCita(c)}>
++                            Cobrar{c.tarifa_aplicada != null ? ` S/ ${Number(c.tarifa_aplicada).toFixed(2)}` : ''}
++                          </button>
++                        </span>
++                      )}
+                       {c.estado_asistencia === 'pendiente' && c.estado_pago === 'pagada' && (
+                         <button type="button" className="rec-btn-nar" onClick={() => marcarAsistio(c)}>Registrar asistió</button>
+                       )}
+diff --git a/web/src/features/recepcion/estilos.css b/web/src/features/recepcion/estilos.css
+index 7caed5f..59fa75a 100644
+--- a/web/src/features/recepcion/estilos.css
++++ b/web/src/features/recepcion/estilos.css
+@@ -1683,3 +1683,7 @@
+     color: #40484e;
+     font-size: .75rem;
+ }
++
++/* Cobro de una cita de sauna reservada en línea */
++.rec-cobrar { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
++.rec-cobrar select { width: auto; min-height: 38px; padding: 6px 10px; }
+diff --git a/web/src/features/recepcion/mock.js b/web/src/features/recepcion/mock.js
+index 0dc8276..690fbd1 100644
+--- a/web/src/features/recepcion/mock.js
++++ b/web/src/features/recepcion/mock.js
+@@ -43,7 +43,7 @@ function ficha(db, c) {
+     ultima_entrada: entradas[0] ? entradas[0].entrada_en : null,
+     pase_hoy: db.pagos.some((p) => p.id_cliente === c.id_cliente && p.concepto === 'pase_dia' && mismoDia(p.pagado_en)),
+     citas_hoy: db.citas.filter((x) => x.id_cliente === c.id_cliente && x.servicio === 'sauna' && mismoDia(x.fecha_hora_cita) && x.estado_asistencia !== 'cancelo')
+-      .map((x) => ({ id_cita: x.id_cita, fecha_hora_cita: x.fecha_hora_cita, estado_pago: x.estado_pago || 'pagada', estado_asistencia: x.estado_asistencia }))
++      .map((x) => ({ id_cita: x.id_cita, fecha_hora_cita: x.fecha_hora_cita, estado_pago: x.estado_pago || 'pagada', tarifa_aplicada: x.tarifa_aplicada === undefined ? null : x.tarifa_aplicada, estado_asistencia: x.estado_asistencia }))
+   };
+ }
+ 
+@@ -139,6 +139,21 @@ export const mock = {
+       return { data: id, error: null };
+     },
+ 
++    // cobrar_cita_sauna(p_id_cita, p_medio): cobra una cita de sauna con pago pendiente (reservada por el cliente).
++    cobrar_cita_sauna(args, ctx) {
++      if (!soloPersonal(ctx)) return err('Sin permiso');
++      if (!['efectivo', 'yape', 'plin'].includes(args.p_medio)) return err('Medio de pago no válido');
++      const cita = ctx.db.citas.find((c) => c.id_cita === args.p_id_cita && c.servicio === 'sauna');
++      if (!cita) return err('La cita no existe.');
++      if (cita.estado_asistencia === 'cancelo') return err('La cita fue cancelada.');
++      if ((cita.estado_pago || 'pagada') === 'pagada') return err('La cita ya está pagada.');
++      const monto = cita.tarifa_aplicada || calcularTarifaSauna(false).monto;
++      ctx.db.pagos.push({ id_pago: ctx.nuevoId('pg'), id_cliente: cita.id_cliente, id_cita: cita.id_cita, monto, medio: args.p_medio,
++        concepto: 'sauna', pagado_en: new Date().toISOString() });
++      cita.estado_pago = 'pagada'; cita.tarifa_aplicada = monto;
++      return { data: { ok: true, monto, medio: args.p_medio }, error: null };
++    },
++
+     // PROPUESTA: resumen_dia(p_sede) -> entradas, cobros por medio, no-shows, turnos de sauna
+     resumen_dia(args, ctx) {
+       const cobros = { efectivo: 0, yape: 0, plin: 0 };
+diff --git a/web/tests/mocks.test.js b/web/tests/mocks.test.js
+index 1a7e61d..14dd772 100644
+--- a/web/tests/mocks.test.js
++++ b/web/tests/mocks.test.js
+@@ -118,4 +118,23 @@ test('admin: inactivos con membresía vigente y motivo de ausencia', () => {
+   assert.equal(llamar('u2', 'registrar_motivo_ausencia', { p_id_cliente: 'kc1', p_motivo: 'costo' }).data.ok, true);
+   assert.equal(llamar('u2', 'clientes_inactivos', { p_dias: 14 }).data[0].ultimo_motivo, 'costo');
+   assert.ok(llamar('u2', 'registrar_motivo_ausencia', { p_id_cliente: 'kc1', p_motivo: 'x' }).error);
+-});
+\ No newline at end of file
++});
++test('sauna reservado por el cliente: nace pendiente de pago y recepción lo cobra', () => {
++  const { llamar, db } = entorno();
++  const id = llamar('u3', 'reservar_sauna', { p_sede: 'Túpac Amaru', p_fecha_hora: manana(11) }).data;
++  const cita = db.citas.find((c) => c.id_cita === id);
++  assert.equal(cita.estado_pago, 'pendiente');
++  assert.ok(cita.tarifa_aplicada > 0);
++  const mia = llamar('u3', 'mis_reservas').data.find((r) => r.id_cita === id);
++  assert.equal(mia.estado_pago, 'pendiente');
++  assert.equal(mia.tarifa_aplicada, cita.tarifa_aplicada);
++  assert.ok(llamar('u3', 'cobrar_cita_sauna', { p_id_cita: id, p_medio: 'yape' }).error, 'el cliente no puede cobrarse a sí mismo');
++  assert.ok(llamar('u1', 'cobrar_cita_sauna', { p_id_cita: id, p_medio: 'tarjeta' }).error, 'medio inválido');
++  const antes = (db.pagos || []).length;
++  const r = llamar('u1', 'cobrar_cita_sauna', { p_id_cita: id, p_medio: 'yape' });
++  assert.equal(r.data.ok, true);
++  assert.equal(cita.estado_pago, 'pagada');
++  assert.equal(db.pagos.length, antes + 1);
++  assert.ok(db.pagos.some((p) => p.id_cita === id && p.concepto === 'sauna' && p.medio === 'yape' && p.monto === cita.tarifa_aplicada));
++  assert.ok(llamar('u1', 'cobrar_cita_sauna', { p_id_cita: id, p_medio: 'efectivo' }).error, 'no se cobra dos veces');
++});

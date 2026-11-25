@@ -245,3 +245,45 @@ export function detalleBitacora(ev = {}) {
       return '';
   }
 }
+// ---------- Agenda: reservas próximas ----------
+// Clave de día local (AAAA-MM-DD) de una fecha ISO.
+export function claveDia(iso) {
+  const d = new Date(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// Citas vigentes (todo menos «Canceló»): son las que ocupan cupo.
+export function citasVigentes(citas = []) {
+  return citas.filter((c) => c.estado_asistencia !== 'cancelo');
+}
+
+// Cuenta citas vigentes por día local: { 'AAAA-MM-DD': n }.
+export function contarPorDia(citas = []) {
+  const m = {};
+  citasVigentes(citas).forEach((c) => { const k = claveDia(c.fecha_hora_cita); m[k] = (m[k] || 0) + 1; });
+  return m;
+}
+
+// Agrupa citas vigentes por día local, ordenadas por fecha y hora.
+export function agruparPorDia(citas = []) {
+  const grupos = new Map();
+  [...citasVigentes(citas)]
+    .sort((a, b) => new Date(a.fecha_hora_cita) - new Date(b.fecha_hora_cita))
+    .forEach((c) => {
+      const k = claveDia(c.fecha_hora_cita);
+      if (!grupos.has(k)) grupos.set(k, []);
+      grupos.get(k).push(c);
+    });
+  return [...grupos.entries()].map(([dia, citas]) => ({ dia, citas }));
+}
+
+// Los N días siguientes a partir de una clave AAAA-MM-DD (incluye el día inicial).
+export function diasDesde(dia, n = 14) {
+  const base = new Date(`${dia}T12:00:00`);
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(base);
+    d.setDate(base.getDate() + i);
+    return claveDia(d);
+  });
+}

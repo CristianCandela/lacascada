@@ -119,3 +119,22 @@ test('admin: inactivos con membresía vigente y motivo de ausencia', () => {
   assert.equal(llamar('u2', 'clientes_inactivos', { p_dias: 14 }).data[0].ultimo_motivo, 'costo');
   assert.ok(llamar('u2', 'registrar_motivo_ausencia', { p_id_cliente: 'kc1', p_motivo: 'x' }).error);
 });
+test('sauna reservado por el cliente: nace pendiente de pago y recepción lo cobra', () => {
+  const { llamar, db } = entorno();
+  const id = llamar('u3', 'reservar_sauna', { p_sede: 'Túpac Amaru', p_fecha_hora: manana(11) }).data;
+  const cita = db.citas.find((c) => c.id_cita === id);
+  assert.equal(cita.estado_pago, 'pendiente');
+  assert.ok(cita.tarifa_aplicada > 0);
+  const mia = llamar('u3', 'mis_reservas').data.find((r) => r.id_cita === id);
+  assert.equal(mia.estado_pago, 'pendiente');
+  assert.equal(mia.tarifa_aplicada, cita.tarifa_aplicada);
+  assert.ok(llamar('u3', 'cobrar_cita_sauna', { p_id_cita: id, p_medio: 'yape' }).error, 'el cliente no puede cobrarse a sí mismo');
+  assert.ok(llamar('u1', 'cobrar_cita_sauna', { p_id_cita: id, p_medio: 'tarjeta' }).error, 'medio inválido');
+  const antes = (db.pagos || []).length;
+  const r = llamar('u1', 'cobrar_cita_sauna', { p_id_cita: id, p_medio: 'yape' });
+  assert.equal(r.data.ok, true);
+  assert.equal(cita.estado_pago, 'pagada');
+  assert.equal(db.pagos.length, antes + 1);
+  assert.ok(db.pagos.some((p) => p.id_cita === id && p.concepto === 'sauna' && p.medio === 'yape' && p.monto === cita.tarifa_aplicada));
+  assert.ok(llamar('u1', 'cobrar_cita_sauna', { p_id_cita: id, p_medio: 'efectivo' }).error, 'no se cobra dos veces');
+});

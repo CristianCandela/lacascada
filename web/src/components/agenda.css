@@ -1,0 +1,103 @@
+/* ===== Agenda · vista diaria y próximas reservas =====
+   Todo va bajo .agenda para no alterar otras tablas de la app. Usa los tokens de styles.css. */
+.agenda { --riel-pendiente: #B8C2CC; --riel-asistio: var(--verde); --riel-no: var(--naranja); }
+
+/* Selector de vista (segmentado) */
+.agenda .segmento { display: inline-flex; padding: 4px; gap: 2px; border-radius: 14px; background: var(--gris-suave); }
+.agenda .segmento button { min-height: 38px; padding: 7px 16px; background: transparent; color: var(--suave); border-radius: 10px; font-weight: 600; }
+.agenda .segmento button:hover { background: rgba(255, 255, 255, .6); color: var(--neutro); }
+.agenda .segmento button[aria-selected="true"] { background: #fff; color: var(--azul-fuerte); box-shadow: 0 1px 3px rgba(20, 40, 60, .14); }
+.agenda .seg-n { min-width: 22px; padding: 1px 7px; border-radius: 99px; background: var(--naranja-suave); color: var(--naranja-texto); font-size: .72rem; line-height: 1.5; text-align: center; }
+
+/* Tira de los próximos días: cada chip dice cuántas reservas hay */
+.agenda .tira { display: flex; gap: 8px; overflow-x: auto; margin: 0 -2px 16px; padding: 2px 2px 8px; scroll-snap-type: x proximity; scrollbar-width: thin; }
+.agenda button.dia-chip { position: relative; flex: 0 0 auto; width: 64px; min-height: 0; padding: 10px 0 9px; flex-direction: column; gap: 1px;
+  background: #fff; color: var(--neutro); border: 1px solid var(--borde); border-radius: 16px; scroll-snap-align: start; }
+.agenda button.dia-chip:hover { background: var(--azul-suave); border-color: #BFE3F4; }
+.agenda .dia-chip small { font-size: .72rem; font-weight: 500; color: var(--suave); }
+.agenda .dia-chip b { font: 600 1.3rem/1.15 var(--f-titulo); font-variant-numeric: tabular-nums; }
+.agenda .dia-chip .cupo { min-width: 22px; height: 18px; margin-top: 3px; padding: 0 6px; border-radius: 99px; font-size: .7rem; font-weight: 700; line-height: 18px;
+  background: var(--gris-suave); color: #3F4A55; }
+.agenda .dia-chip .cupo.hay { background: var(--naranja-suave); color: var(--naranja-texto); }
+.agenda .dia-chip .cupo.vacio-dia { background: transparent; color: #A3ADB7; font-weight: 500; }
+.agenda button.dia-chip.activo { background: var(--azul-fuerte); border-color: var(--azul-fuerte); color: #fff; box-shadow: 0 6px 16px rgba(10, 106, 148, .28); }
+.agenda .dia-chip.activo small { color: rgba(255, 255, 255, .82); }
+.agenda .dia-chip.activo .cupo { background: rgba(255, 255, 255, .22); color: #fff; }
+.agenda .dia-chip.activo .cupo.vacio-dia { background: transparent; color: rgba(255, 255, 255, .6); }
+
+/* Avance del día: una sola barra con los estados */
+.agenda .avance { margin: 0 0 18px; }
+.agenda .avance-barra { display: flex; height: 10px; border-radius: 99px; overflow: hidden; gap: 2px; background: var(--gris-suave); }
+.agenda .avance-barra span { display: block; height: 100%; min-width: 0; transition: width .4s ease; }
+.agenda .avance-barra .a-asistio { background: var(--verde); } .agenda .avance-barra .a-no { background: var(--naranja); }
+.agenda .avance-barra .a-cancelo { background: #8995A1; } .agenda .avance-barra .a-pend { background: #CBD5DD; }
+.agenda .avance-leyenda { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 8px 2px 0; font-size: .82rem; color: var(--suave); }
+.agenda .avance-leyenda b { color: var(--neutro); font-variant-numeric: tabular-nums; }
+.agenda .avance-leyenda i { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; }
+
+/* Resumen más ligero */
+.agenda .resumenes { gap: 12px; margin-bottom: 18px; }
+.agenda .resumen { padding: 14px 16px; border-radius: 18px; box-shadow: none; }
+.agenda .resumen-num { font-size: 1.7rem; }
+
+/* Herramientas */
+.agenda .herramientas { padding-bottom: 14px; margin-bottom: 6px; border-bottom: 1px solid var(--borde); }
+.agenda .dia-nav input { min-height: 40px; }
+
+/* Tabla diaria: cada fila es una tarjeta con riel de color según el estado */
+.agenda .tabla-wrap table { border-collapse: separate; border-spacing: 0 8px; margin-top: -4px; }
+.agenda .tabla-wrap th { background: transparent; padding: 6px 12px; border: 0; font-weight: 600; color: var(--suave); }
+.agenda .tabla-wrap th:first-child, .agenda .tabla-wrap th:last-child { border-radius: 0; }
+.agenda .tabla-wrap td { padding: 12px; border: 0; background: #fff; border-top: 1px solid var(--borde); border-bottom: 1px solid var(--borde); }
+.agenda .tabla-wrap tbody tr:hover { background: transparent; }
+.agenda .tabla-wrap tbody tr:hover td { background: #F8FBFD; }
+.agenda .tabla-wrap td:first-child { border-left: 1px solid var(--borde); border-radius: 14px 0 0 14px; box-shadow: inset 5px 0 0 var(--riel-pendiente); padding-left: 18px; }
+.agenda .tabla-wrap td:last-child { border-right: 1px solid var(--borde); border-radius: 0 14px 14px 0; }
+.agenda .tabla-wrap tr.asistio td:first-child { box-shadow: inset 5px 0 0 var(--riel-asistio); }
+.agenda .tabla-wrap tr.no_asistio td:first-child { box-shadow: inset 5px 0 0 var(--riel-no); }
+.agenda .tabla-wrap tr.cancelo td { color: var(--suave); }
+.agenda .tabla-wrap tr.cancelo .persona { text-decoration: line-through; text-decoration-color: #B8C2CC; }
+.agenda .hora { font: 600 1.15rem var(--f-titulo); color: var(--azul-fuerte); }
+.agenda .en-curso { display: inline-flex; align-items: center; gap: 6px; margin-top: 3px; font: 600 .7rem var(--f-cuerpo); color: var(--verde-fuerte); }
+.agenda .en-curso::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--verde); box-shadow: 0 0 0 3px rgba(22, 163, 74, .2); }
+.agenda .hora-col { display: flex; flex-direction: column; }
+.agenda .avatar { width: 38px; height: 38px; }
+.agenda .acciones { white-space: nowrap; }
+
+/* Próximas reservas */
+.agenda .prox-dia { margin-bottom: 22px; }
+.agenda .prox-cab { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; padding: 0 2px; }
+.agenda .prox-fecha { display: flex; align-items: baseline; gap: 10px; flex: 1 1 auto; }
+.agenda .prox-fecha b { font: 600 1.15rem var(--f-titulo); text-transform: capitalize; }
+.agenda .prox-fecha span { color: var(--suave); font-size: .88rem; }
+.agenda .prox-cuenta { padding: 3px 11px; border-radius: 99px; background: var(--azul-suave); color: var(--azul-fuerte); font-size: .78rem; font-weight: 700; }
+.agenda .prox-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.agenda .prox-item { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; padding: 12px 14px 12px 18px;
+  background: #fff; border: 1px solid var(--borde); border-radius: 14px; box-shadow: inset 5px 0 0 var(--riel-pendiente); }
+.agenda .prox-item.asistio { box-shadow: inset 5px 0 0 var(--riel-asistio); }
+.agenda .prox-item.no_asistio { box-shadow: inset 5px 0 0 var(--riel-no); }
+.agenda .prox-hora { font: 600 1.15rem var(--f-titulo); color: var(--azul-fuerte); font-variant-numeric: tabular-nums; }
+.agenda .prox-quien { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.agenda .prox-quien .persona-txt { min-width: 0; }
+.agenda .prox-quien .persona-txt > span { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agenda .prox-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 5px; }
+.agenda .prox-acc { display: flex; align-items: center; gap: 6px; }
+.agenda .etq.online { background: var(--azul-suave); color: var(--azul-fuerte); }
+.agenda button.anular { background: #fff; color: var(--error); border-color: #F5B5AF; }
+.agenda button.anular:hover { background: var(--error-suave); }
+.agenda .nota-prox { margin: 0 0 16px; padding: 10px 14px; border-radius: var(--radio-s); background: var(--azul-suave); color: #17435A; font-size: .88rem; }
+
+@media (max-width: 760px) {
+  .agenda .segmento { width: 100%; } .agenda .segmento button { flex: 1; padding: 7px 8px; }
+  .agenda .tabla-wrap tbody tr { background: #fff; box-shadow: inset 5px 0 0 var(--riel-pendiente); padding-left: 18px; border-radius: 14px; }
+  .agenda .tabla-wrap tbody tr.asistio { box-shadow: inset 5px 0 0 var(--riel-asistio); }
+  .agenda .tabla-wrap tbody tr.no_asistio { box-shadow: inset 5px 0 0 var(--riel-no); }
+  .agenda .tabla-wrap td, .agenda .tabla-wrap td:first-child, .agenda .tabla-wrap td:last-child { background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 5px 0; }
+  .agenda .tabla-wrap tbody tr:hover td { background: transparent; }
+  .agenda .hora-col { align-items: flex-end; }
+  .agenda .prox-item { grid-template-columns: 54px minmax(0, 1fr); }
+  .agenda .prox-acc { grid-column: 1 / -1; flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) { .agenda .avance-barra span { transition: none; } }
+
+.agenda .por-cobrar { margin-left: 6px; white-space: nowrap; }
