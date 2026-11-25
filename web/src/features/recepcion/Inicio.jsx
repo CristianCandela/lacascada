@@ -76,7 +76,7 @@ export default function Inicio({ perfil, onAviso }) {
   const gim = estadoAforo(d.gim.ocupados, d.gim.capacidad);
   const alertas = construirAlertas({ aforoGim: gim, porVencer: d.porVencer, noShows: d.resumen.no_shows });
   const c = d.resumen.cobros;
-  const total = c.efectivo + c.yape + c.plin;
+  const total = c.efectivo + c.yape + c.plin + (c.visa || 0);
   const fecha = new Date().toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' });
 
   async function copiarCodigo(texto) {
@@ -160,7 +160,7 @@ export default function Inicio({ perfil, onAviso }) {
           <div><small>Entradas de hoy</small><strong>{d.resumen.entradas}</strong> <em>accesos</em></div></div>
         <div className="rec-mini"><span className="rec-mini-ico"><Icono n="bandeja" tam={22} /></span>
           <div><small>Cobros de hoy</small><strong>{soles(total)}</strong>
-            <em>Efec {soles(c.efectivo)} · Yape {soles(c.yape)} · Plin {soles(c.plin)}</em></div></div>
+            <em>Efec {soles(c.efectivo)} · Yape {soles(c.yape)} · Plin {soles(c.plin)} · Visa {soles(c.visa || 0)}</em></div></div>
         <div className="rec-mini"><span className="rec-mini-ico"><Icono n="x" tam={22} /></span>
           <div><small>No-shows de sauna</small><strong>{d.resumen.no_shows}</strong> <em>citas pagadas sin llegar</em></div></div>
       </section>

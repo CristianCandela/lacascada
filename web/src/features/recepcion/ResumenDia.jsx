@@ -33,7 +33,7 @@ export default function ResumenDia({ onAviso }) {
 
   if (!d) return <p className="vacio">Cargando resumen…</p>;
   const c = d.cobros;
-  const total = c.efectivo + c.yape + c.plin;
+  const total = c.efectivo + c.yape + c.plin + (c.visa || 0);
   const tasa = tasaNoShow(d.sauna.asistio, d.sauna.no_asistio);
   const maxH = Math.max(1, ...d.por_hora.map((x) => x.cuenta));
   const pico = d.por_hora.reduce((m, x) => (x.cuenta > (m ? m.cuenta : 0) ? x : m), null);
@@ -59,13 +59,13 @@ export default function ResumenDia({ onAviso }) {
         <div className="rec-col">
           <section className="rec-panel">
             <div className="rec-bloque-cab"><h3>Cuadre de caja</h3><span className="rec-etiqueta">{c.anulados} ANULADO(S)</span></div>
-            {[['Efectivo', c.efectivo, c.n_efectivo], ['Yape', c.yape, c.n_yape], ['Plin', c.plin, c.n_plin]].map(([n, m, k]) => (
+            {[['Efectivo', c.efectivo, c.n_efectivo], ['Yape', c.yape, c.n_yape], ['Plin', c.plin, c.n_plin], ['Visa', c.visa || 0, c.n_visa || 0]].map(([n, m, k]) => (
               <div key={n} className="rec-bloque rec-fila-caja">
                 <div><strong>{n}</strong><small>{k} operación(es)</small></div>
                 <div style={{ textAlign: 'right' }}><strong className="rec-num">{soles(m)}</strong><small>{porcentaje(m, total)} %</small></div>
               </div>
             ))}
-            <div className="rec-total"><small>TOTAL RECAUDADO</small><strong className="rec-num">{soles(total)}</strong><span>Efectivo + Yape + Plin, sin pagos anulados</span></div>
+            <div className="rec-total"><small>TOTAL RECAUDADO</small><strong className="rec-num">{soles(total)}</strong><span>Efectivo + Yape + Plin + Visa, sin pagos anulados</span></div>
             <div className="rec-franja" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
               <div className="rec-bloque"><small>Membresías</small><strong className="rec-num">{soles(c.membresia)}</strong></div>
               <div className="rec-bloque"><small>Pases del día</small><strong className="rec-num">{soles(c.pase_dia)}</strong></div>
