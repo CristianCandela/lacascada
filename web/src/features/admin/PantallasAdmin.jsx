@@ -54,7 +54,7 @@ export function PantallaMembresias({ perfil }) {
     }
 
     const payload = {
-      id_plan: `p${Date.now()}`,
+      id_plan: crypto.randomUUID(),
       nombre: nuevoPlan.nombre.trim(),
       dias: Number(nuevoPlan.dias),
       precio: Number(nuevoPlan.precio),
