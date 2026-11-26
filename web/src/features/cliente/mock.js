@@ -400,11 +400,22 @@ export const mock = {
       if (c.estado_asistencia !== 'pendiente' || new Date(c.fecha_hora_cita) <= new Date()) {
         return ok({ ok: false, motivo: 'Solo se pueden cancelar reservas pendientes y futuras.' });
       }
+      // Pago registrado de esta cita (si ya la pagó): con 2 h o más de anticipación se reembolsa (simulado).
+      const pago = (c.estado_pago || 'pagada') === 'pagada'
+        ? ctx.db.pagos.filter((x) => x.id_cita === c.id_cita && x.concepto === 'sauna' && x.estado !== 'anulado').pop()
+        : null;
       c.estado_asistencia = 'cancelo';
       if (ctx.registrar) {
         ctx.registrar('citas', 'marcar', c.id_cita, cli.id_cliente, { antes: 'pendiente', despues: 'cancelo' });
       }
-      return ok({ ok: true });
+      if (!pago) return ok({ ok: true, reembolso: false });
+      if (new Date(c.fecha_hora_cita).getTime() - Date.now() >= 2 * 3600000) {
+        pago.estado = 'anulado'; pago.motivo_anulacion = 'Cancelación del cliente (reembolso)'; pago.anulado_en = new Date().toISOString();
+        c.estado_pago = 'reembolsada';
+        if (ctx.registrar) ctx.registrar('pagos', 'anulacion', pago.id_pago, cli.id_cliente, { motivo: 'Cancelación del cliente (reembolso)', monto: pago.monto, concepto: 'sauna', id_cita: c.id_cita });
+        return ok({ ok: true, reembolso: true, monto: pago.monto, medio: pago.medio });
+      }
+      return ok({ ok: true, reembolso: false, monto: pago.monto, medio: pago.medio });
     }
   }
 };

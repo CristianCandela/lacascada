@@ -1,7 +1,7 @@
 // web/src/features/cliente/MisReservas.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
-import { etiquetaEstadoReserva, formatearFechaPe, claseBadgeEstado } from './logica';
+import { etiquetaEstadoReserva, formatearFechaPe, claseBadgeEstado, politicaReembolso, HORAS_REEMBOLSO } from './logica';
 import PagoSimulado from './PagoSimulado';
 import './estilos.css';
 
@@ -114,16 +114,30 @@ export default function MisReservas({ perfil, onAviso }) {
     }
   };
 
-  const handleCancelar = async (idCita) => {
+  const handleCancelar = async (reserva) => {
+    const pol = politicaReembolso(reserva);
+    const soles = `S/ ${pol.monto.toFixed(2)}`;
+    const pregunta = !pol.pagada
+      ? '¿Cancelar esta reserva?'
+      : pol.reembolsa
+        ? `¿Cancelar esta reserva? Se te reembolsarán ${soles} por el mismo medio de pago.`
+        : `Faltan menos de ${HORAS_REEMBOLSO} horas para tu turno: si cancelas, NO habrá reembolso de ${soles}. ¿Cancelar de todos modos?`;
+    if (!window.confirm(pregunta)) return;
     setCargando(true);
     try {
       const { data, error } = await supabase.rpc('cancelar_reserva', {
-        p_id_cita: idCita
+        p_id_cita: reserva.id_cita
       });
       if (error) throw error;
 
       if (data?.ok) {
-        if (onAviso) onAviso('Reserva cancelada correctamente.', 'exito');
+        if (onAviso) {
+          onAviso(data.reembolso
+            ? `Reserva cancelada. Te reembolsaremos S/ ${Number(data.monto).toFixed(2)} por el mismo medio de pago (reembolso simulado).`
+            : data.monto != null
+              ? `Reserva cancelada. Como faltaban menos de ${HORAS_REEMBOLSO} horas, el pago no se reembolsa.`
+              : 'Reserva cancelada correctamente.', 'exito');
+        }
         await cargarReservas();
       } else {
         if (onAviso) onAviso(data?.motivo || 'Error al cancelar reserva.', 'error');
@@ -199,7 +213,18 @@ export default function MisReservas({ perfil, onAviso }) {
                     </div>
                   )}
                   {reserva.estado_pago === 'pagada' && reserva.tarifa_aplicada != null && reserva.estado_asistencia !== 'cancelo' && (
-                    <div className="cli-pago-nota ok" data-pago="pagada">Pagado: S/ {Number(reserva.tarifa_aplicada).toFixed(2)}</div>
+                    <div className="cli-pago-nota ok" data-pago="pagada">
+                      Pagado: S/ {Number(reserva.tarifa_aplicada).toFixed(2)}
+                      {reserva.estado_asistencia === 'pendiente' && <small> · reembolso si cancelas con {HORAS_REEMBOLSO} h o más de anticipación</small>}
+                    </div>
+                  )}
+                  {reserva.estado_pago === 'reembolsada' && (
+                    <div className="cli-pago-nota ok" data-pago="reembolsada">
+                      Reembolsado: S/ {Number(reserva.tarifa_aplicada || 0).toFixed(2)} por el mismo medio de pago
+                    </div>
+                  )}
+                  {reserva.estado_pago === 'pagada' && reserva.estado_asistencia === 'cancelo' && (
+                    <div className="cli-pago-nota" data-pago="retenido">Cancelada con menos de {HORAS_REEMBOLSO} h de anticipación: el pago no se reembolsa</div>
                   )}
                 </div>
                 <div className="cli-acciones">
@@ -213,7 +238,7 @@ export default function MisReservas({ perfil, onAviso }) {
                   )}
                   {(reserva.estado === 'pendiente' || reserva.estado_asistencia === 'pendiente') && (
                     <button
-                      onClick={() => handleCancelar(reserva.id_cita)}
+                      onClick={() => handleCancelar(reserva)}
                       disabled={cargando}
                       className="cli-btn-cancelar"
                     >

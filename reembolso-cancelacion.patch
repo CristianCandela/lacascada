@@ -1,0 +1,291 @@
+diff --git a/supabase/migrations/20261127000000_cancelar_reserva_reembolso.sql b/supabase/migrations/20261127000000_cancelar_reserva_reembolso.sql
+new file mode 100644
+index 0000000..1b3f748
+--- /dev/null
++++ b/supabase/migrations/20261127000000_cancelar_reserva_reembolso.sql
+@@ -0,0 +1,81 @@
++-- =====================================================================
++-- Cancelación de una reserva de sauna ya pagada: reembolso simulado.
++--  * Cancelar con 2 horas o más de anticipación: reembolso completo. El pago pasa a 'anulado'
++--    (el cuadre y los ingresos lo ignoran), la cita queda con estado_pago = 'reembolsada' y se
++--    deja la anulación en la bitácora. Es un reembolso SIMULADO: no se devuelve dinero real.
++--  * Cancelar con menos de 2 horas: la cita se cancela, el cupo se libera, pero el pago se retiene.
++--  * Sin pago registrado (pendiente): se cancela como antes.
++-- El plazo de 2 horas es una política propuesta: confirmarla con el negocio y, si cambia,
++-- modificar solo el intervalo de esta función.
++-- Ejecutar después de 20261126000000_pago_simulado_ingresos.sql.
++-- =====================================================================
++
++-- citas.estado_pago admite ahora 'reembolsada' (se busca la restricción por contenido, sin depender de su nombre).
++do $$
++declare r record;
++begin
++  for r in select conname from pg_constraint
++           where conrelid = 'public.citas'::regclass and contype = 'c'
++             and pg_get_constraintdef(oid) ilike '%estado_pago%' loop
++    execute format('alter table public.citas drop constraint %I', r.conname);
++  end loop;
++end $$;
++alter table public.citas add constraint citas_estado_pago_check
++  check (estado_pago in ('pagada', 'pendiente', 'reembolsada'));
++
++create or replace function public.cancelar_reserva(p_id_cita uuid)
++returns json
++language plpgsql
++volatile
++security definer
++set search_path = public
++as $$
++declare
++  v_id   uuid := public.id_cliente_actual();
++  c      public.citas;
++  v_pago public.pagos;
++begin
++  if public.rol_actual() is distinct from 'cliente' or v_id is null then
++    raise exception 'Acceso denegado: solo los clientes' using errcode = '42501';
++  end if;
++  select * into c from public.citas where id_cita = p_id_cita and id_cliente = v_id for update;
++  if not found then
++    return json_build_object('ok', false, 'motivo', 'La reserva no existe.');
++  end if;
++  if c.estado_asistencia <> 'pendiente' or c.fecha_hora_cita <= now() then
++    return json_build_object('ok', false, 'motivo', 'Solo se pueden cancelar reservas pendientes y futuras.');
++  end if;
++
++  if c.estado_pago = 'pagada' then
++    select * into v_pago from public.pagos
++    where id_cita = c.id_cita and concepto = 'sauna' and estado = 'registrado'
++    order by pagado_en desc limit 1;
++  end if;
++
++  if v_pago.id_pago is not null and c.fecha_hora_cita - now() >= interval '2 hours' then
++    -- Reembolso completo (simulado)
++    update public.pagos
++    set estado = 'anulado', motivo_anulacion = 'Cancelación del cliente (reembolso)',
++        anulado_por = auth.uid(), anulado_en = now()
++    where id_pago = v_pago.id_pago;
++    update public.citas
++    set estado_asistencia = 'cancelo', marcada_en = now(), estado_pago = 'reembolsada'
++    where id_cita = c.id_cita;
++    perform public.registrar_evento('pagos', 'anulacion', v_pago.id_pago, v_id,
++                                    jsonb_build_object('motivo', 'Cancelación del cliente (reembolso)', 'monto', v_pago.monto,
++                                                       'concepto', 'sauna', 'id_cita', c.id_cita));
++    return json_build_object('ok', true, 'reembolso', true, 'monto', v_pago.monto, 'medio', v_pago.medio);
++  end if;
++
++  update public.citas set estado_asistencia = 'cancelo', marcada_en = now() where id_cita = c.id_cita;
++  if v_pago.id_pago is not null then
++    -- Cancelación tardía: el pago se retiene
++    return json_build_object('ok', true, 'reembolso', false, 'monto', v_pago.monto, 'medio', v_pago.medio);
++  end if;
++  return json_build_object('ok', true, 'reembolso', false);
++end;
++$$;
++revoke all on function public.cancelar_reserva(uuid) from public, anon;
++grant execute on function public.cancelar_reserva(uuid) to authenticated;
++
++notify pgrst, 'reload schema';
+diff --git a/web/src/components/Agenda.jsx b/web/src/components/Agenda.jsx
+index 8551512..1976474 100644
+--- a/web/src/components/Agenda.jsx
++++ b/web/src/components/Agenda.jsx
+@@ -32,6 +32,7 @@ function etiquetaDia(dia) {
+ // Cita de sauna con el pago pendiente (se cobra en recepción).
+ const porCobrar = (f) => f.servicio === 'sauna' && f.estado_pago === 'pendiente' && f.estado_asistencia !== 'cancelo';
+ const pagadaEnLinea = (f) => f.servicio === 'sauna' && f.origen === 'cliente' && f.estado_pago === 'pagada' && f.tarifa_aplicada != null && f.estado_asistencia !== 'cancelo';
++const reembolsada = (f) => f.servicio === 'sauna' && f.estado_pago === 'reembolsada';
+ const textoCobro = (f) => `Por cobrar${f.tarifa_aplicada != null ? ` · S/ ${Number(f.tarifa_aplicada).toFixed(2)}` : ''}`;
+ 
+ function Resumen({ icono, tono, valor, texto }) {
+@@ -403,7 +404,7 @@ export default function Agenda({ perfil, onAviso }) {
+                               )}
+                             </div>
+                           </td>
+-                          <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span>{porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}{pagadaEnLinea(f) && <span className="etq asistio por-cobrar" data-pago="pagada">Pagado · S/ {Number(f.tarifa_aplicada).toFixed(2)}</span>}</td>
++                          <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span>{porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}{pagadaEnLinea(f) && <span className="etq asistio por-cobrar" data-pago="pagada">Pagado · S/ {Number(f.tarifa_aplicada).toFixed(2)}</span>}{reembolsada(f) && <span className="etq por-cobrar" data-pago="reembolsada">Reembolsado</span>}</td>
+                           <td data-label="Acción" className="acciones">
+                             {f.estado_asistencia === 'pendiente' ? (
+                               <>
+diff --git a/web/src/features/cliente/MisReservas.jsx b/web/src/features/cliente/MisReservas.jsx
+index dce1fc0..d0db0e1 100644
+--- a/web/src/features/cliente/MisReservas.jsx
++++ b/web/src/features/cliente/MisReservas.jsx
+@@ -1,7 +1,7 @@
+ // web/src/features/cliente/MisReservas.jsx
+ import React, { useState, useEffect, useCallback } from 'react';
+ import { supabase } from '../../lib/supabase';
+-import { etiquetaEstadoReserva, formatearFechaPe, claseBadgeEstado } from './logica';
++import { etiquetaEstadoReserva, formatearFechaPe, claseBadgeEstado, politicaReembolso, HORAS_REEMBOLSO } from './logica';
+ import PagoSimulado from './PagoSimulado';
+ import './estilos.css';
+ 
+@@ -114,16 +114,30 @@ export default function MisReservas({ perfil, onAviso }) {
+     }
+   };
+ 
+-  const handleCancelar = async (idCita) => {
++  const handleCancelar = async (reserva) => {
++    const pol = politicaReembolso(reserva);
++    const soles = `S/ ${pol.monto.toFixed(2)}`;
++    const pregunta = !pol.pagada
++      ? '¿Cancelar esta reserva?'
++      : pol.reembolsa
++        ? `¿Cancelar esta reserva? Se te reembolsarán ${soles} por el mismo medio de pago.`
++        : `Faltan menos de ${HORAS_REEMBOLSO} horas para tu turno: si cancelas, NO habrá reembolso de ${soles}. ¿Cancelar de todos modos?`;
++    if (!window.confirm(pregunta)) return;
+     setCargando(true);
+     try {
+       const { data, error } = await supabase.rpc('cancelar_reserva', {
+-        p_id_cita: idCita
++        p_id_cita: reserva.id_cita
+       });
+       if (error) throw error;
+ 
+       if (data?.ok) {
+-        if (onAviso) onAviso('Reserva cancelada correctamente.', 'exito');
++        if (onAviso) {
++          onAviso(data.reembolso
++            ? `Reserva cancelada. Te reembolsaremos S/ ${Number(data.monto).toFixed(2)} por el mismo medio de pago (reembolso simulado).`
++            : data.monto != null
++              ? `Reserva cancelada. Como faltaban menos de ${HORAS_REEMBOLSO} horas, el pago no se reembolsa.`
++              : 'Reserva cancelada correctamente.', 'exito');
++        }
+         await cargarReservas();
+       } else {
+         if (onAviso) onAviso(data?.motivo || 'Error al cancelar reserva.', 'error');
+@@ -199,7 +213,18 @@ export default function MisReservas({ perfil, onAviso }) {
+                     </div>
+                   )}
+                   {reserva.estado_pago === 'pagada' && reserva.tarifa_aplicada != null && reserva.estado_asistencia !== 'cancelo' && (
+-                    <div className="cli-pago-nota ok" data-pago="pagada">Pagado: S/ {Number(reserva.tarifa_aplicada).toFixed(2)}</div>
++                    <div className="cli-pago-nota ok" data-pago="pagada">
++                      Pagado: S/ {Number(reserva.tarifa_aplicada).toFixed(2)}
++                      {reserva.estado_asistencia === 'pendiente' && <small> · reembolso si cancelas con {HORAS_REEMBOLSO} h o más de anticipación</small>}
++                    </div>
++                  )}
++                  {reserva.estado_pago === 'reembolsada' && (
++                    <div className="cli-pago-nota ok" data-pago="reembolsada">
++                      Reembolsado: S/ {Number(reserva.tarifa_aplicada || 0).toFixed(2)} por el mismo medio de pago
++                    </div>
++                  )}
++                  {reserva.estado_pago === 'pagada' && reserva.estado_asistencia === 'cancelo' && (
++                    <div className="cli-pago-nota" data-pago="retenido">Cancelada con menos de {HORAS_REEMBOLSO} h de anticipación: el pago no se reembolsa</div>
+                   )}
+                 </div>
+                 <div className="cli-acciones">
+@@ -213,7 +238,7 @@ export default function MisReservas({ perfil, onAviso }) {
+                   )}
+                   {(reserva.estado === 'pendiente' || reserva.estado_asistencia === 'pendiente') && (
+                     <button
+-                      onClick={() => handleCancelar(reserva.id_cita)}
++                      onClick={() => handleCancelar(reserva)}
+                       disabled={cargando}
+                       className="cli-btn-cancelar"
+                     >
+diff --git a/web/src/features/cliente/logica.js b/web/src/features/cliente/logica.js
+index 16a46db..d30520d 100644
+--- a/web/src/features/cliente/logica.js
++++ b/web/src/features/cliente/logica.js
+@@ -229,3 +229,13 @@ export function evaluarPago(medio, datos = {}, ahora = new Date()) {
+ }
+ 
+ export const etiquetaMedioPago = (id) => (METODOS_PAGO_RESERVA.find((m) => m.id === id) || {}).etiqueta || String(id || '').toUpperCase();
++
++// ---------- Reembolso al cancelar una reserva pagada (política simulada) ----------
++export const HORAS_REEMBOLSO = 2; // debe coincidir con el intervalo de cancelar_reserva en la base
++
++// { pagada, reembolsa, monto }: si la reserva está pagada y todavía faltan HORAS_REEMBOLSO horas o más.
++export function politicaReembolso(reserva, ahora = new Date()) {
++  const pagada = Boolean(reserva) && reserva.estado_pago === 'pagada' && reserva.tarifa_aplicada != null;
++  const faltan = new Date(reserva && (reserva.fecha_hora_cita || reserva.fecha_hora)).getTime() - ahora.getTime();
++  return { pagada, reembolsa: pagada && faltan >= HORAS_REEMBOLSO * 3600000, monto: pagada ? Number(reserva.tarifa_aplicada) : 0 };
++}
+diff --git a/web/src/features/cliente/mock.js b/web/src/features/cliente/mock.js
+index bcb2f4c..d6a5121 100644
+--- a/web/src/features/cliente/mock.js
++++ b/web/src/features/cliente/mock.js
+@@ -400,11 +400,22 @@ export const mock = {
+       if (c.estado_asistencia !== 'pendiente' || new Date(c.fecha_hora_cita) <= new Date()) {
+         return ok({ ok: false, motivo: 'Solo se pueden cancelar reservas pendientes y futuras.' });
+       }
++      // Pago registrado de esta cita (si ya la pagó): con 2 h o más de anticipación se reembolsa (simulado).
++      const pago = (c.estado_pago || 'pagada') === 'pagada'
++        ? ctx.db.pagos.filter((x) => x.id_cita === c.id_cita && x.concepto === 'sauna' && x.estado !== 'anulado').pop()
++        : null;
+       c.estado_asistencia = 'cancelo';
+       if (ctx.registrar) {
+         ctx.registrar('citas', 'marcar', c.id_cita, cli.id_cliente, { antes: 'pendiente', despues: 'cancelo' });
+       }
+-      return ok({ ok: true });
++      if (!pago) return ok({ ok: true, reembolso: false });
++      if (new Date(c.fecha_hora_cita).getTime() - Date.now() >= 2 * 3600000) {
++        pago.estado = 'anulado'; pago.motivo_anulacion = 'Cancelación del cliente (reembolso)'; pago.anulado_en = new Date().toISOString();
++        c.estado_pago = 'reembolsada';
++        if (ctx.registrar) ctx.registrar('pagos', 'anulacion', pago.id_pago, cli.id_cliente, { motivo: 'Cancelación del cliente (reembolso)', monto: pago.monto, concepto: 'sauna', id_cita: c.id_cita });
++        return ok({ ok: true, reembolso: true, monto: pago.monto, medio: pago.medio });
++      }
++      return ok({ ok: true, reembolso: false, monto: pago.monto, medio: pago.medio });
+     }
+   }
+ };
+\ No newline at end of file
+diff --git a/web/tests/logica.test.js b/web/tests/logica.test.js
+index 68d4ad6..15a3806 100644
+--- a/web/tests/logica.test.js
++++ b/web/tests/logica.test.js
+@@ -167,3 +167,14 @@ test('pago simulado: Luhn, formatos y validación de cada medio', async () => {
+   assert.ok(L.evaluarPago('yape', { celular: '987654321', codigo: '000000' }, hoy).rechazo);
+   assert.equal(L.evaluarPago('plin', { celular: '912345678' }, hoy).ok, true);
+ });
++
++test('política de reembolso: completo con 2 h o más de anticipación, sin reembolso si falta menos', async () => {
++  const { politicaReembolso } = await import('../src/features/cliente/logica.js');
++  const ahora = new Date(2026, 10, 26, 10, 0);
++  const en = (h) => new Date(ahora.getTime() + h * 3600000).toISOString();
++  const pagada = (h) => ({ estado_pago: 'pagada', tarifa_aplicada: 15, fecha_hora_cita: en(h) });
++  assert.deepEqual(politicaReembolso(pagada(3), ahora), { pagada: true, reembolsa: true, monto: 15 });
++  assert.equal(politicaReembolso(pagada(2), ahora).reembolsa, true);          // justo 2 h: aún reembolsa
++  assert.equal(politicaReembolso(pagada(1.5), ahora).reembolsa, false);
++  assert.equal(politicaReembolso({ estado_pago: 'pendiente', tarifa_aplicada: 15, fecha_hora_cita: en(5) }, ahora).pagada, false);
++});
+diff --git a/web/tests/mocks.test.js b/web/tests/mocks.test.js
+index 9889151..897b594 100644
+--- a/web/tests/mocks.test.js
++++ b/web/tests/mocks.test.js
+@@ -160,3 +160,36 @@ test('pago en línea del cliente: queda registrado, suma en caja y en ingresos d
+   const caja = llamar('u1', 'resumen_completo', { p_sede: 'Túpac Amaru' }).data.cobros;
+   assert.ok(caja.visa >= cita.tarifa_aplicada, 'la caja del día incluye Visa');
+ });
++
++test('cancelar una reserva pagada: reembolso con 2 h o más, sin reembolso si falta menos', () => {
++  const { llamar, db } = entorno();
++  const ingresos = () => llamar('u2', 'ingresos_resumen', { p_dias: 30 }).data;
++  const base = ingresos().total;
++
++  // 1) pagada con tiempo de sobra -> reembolso completo, el pago deja de sumar
++  const id1 = llamar('u3', 'reservar_sauna', { p_sede: 'Túpac Amaru', p_fecha_hora: manana(17) }).data;
++  llamar('u3', 'pagar_reserva_sauna', { p_id_cita: id1, p_medio: 'yape' });
++  assert.equal(ingresos().total, base + 15);
++  const r1 = llamar('u3', 'cancelar_reserva', { p_id_cita: id1 }).data;
++  assert.equal(r1.ok, true); assert.equal(r1.reembolso, true); assert.equal(r1.monto, 15);
++  const c1 = db.citas.find((c) => c.id_cita === id1);
++  assert.equal(c1.estado_asistencia, 'cancelo'); assert.equal(c1.estado_pago, 'reembolsada');
++  assert.equal(db.pagos.find((p) => p.id_cita === id1).estado, 'anulado');
++  assert.equal(ingresos().total, base, 'el reembolso resta de los ingresos');
++  assert.equal(llamar('u3', 'mis_reservas').data.find((r) => r.id_cita === id1).estado_pago, 'reembolsada');
++
++  // 2) pagada pero faltan menos de 2 h -> se cancela y el pago se retiene
++  const id2 = llamar('u3', 'reservar_sauna', { p_sede: 'Túpac Amaru', p_fecha_hora: manana(18) }).data;
++  llamar('u3', 'pagar_reserva_sauna', { p_id_cita: id2, p_medio: 'visa' });
++  db.citas.find((c) => c.id_cita === id2).fecha_hora_cita = new Date(Date.now() + 3600000).toISOString();
++  const r2 = llamar('u3', 'cancelar_reserva', { p_id_cita: id2 }).data;
++  assert.equal(r2.ok, true); assert.equal(r2.reembolso, false); assert.equal(r2.monto, 15);
++  assert.equal(db.citas.find((c) => c.id_cita === id2).estado_asistencia, 'cancelo');
++  assert.equal(db.pagos.find((p) => p.id_cita === id2).estado === 'anulado', false);
++  assert.equal(ingresos().total, base + 15, 'el pago retenido sigue sumando');
++
++  // 3) sin pagar -> se cancela sin más
++  const id3 = llamar('u3', 'reservar_sauna', { p_sede: 'Túpac Amaru', p_fecha_hora: manana(19) }).data;
++  const r3 = llamar('u3', 'cancelar_reserva', { p_id_cita: id3 }).data;
++  assert.deepEqual(r3, { ok: true, reembolso: false });
++});

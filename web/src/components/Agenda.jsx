@@ -32,6 +32,7 @@ function etiquetaDia(dia) {
 // Cita de sauna con el pago pendiente (se cobra en recepción).
 const porCobrar = (f) => f.servicio === 'sauna' && f.estado_pago === 'pendiente' && f.estado_asistencia !== 'cancelo';
 const pagadaEnLinea = (f) => f.servicio === 'sauna' && f.origen === 'cliente' && f.estado_pago === 'pagada' && f.tarifa_aplicada != null && f.estado_asistencia !== 'cancelo';
+const reembolsada = (f) => f.servicio === 'sauna' && f.estado_pago === 'reembolsada';
 const textoCobro = (f) => `Por cobrar${f.tarifa_aplicada != null ? ` · S/ ${Number(f.tarifa_aplicada).toFixed(2)}` : ''}`;
 
 function Resumen({ icono, tono, valor, texto }) {
@@ -403,7 +404,7 @@ export default function Agenda({ perfil, onAviso }) {
                               )}
                             </div>
                           </td>
-                          <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span>{porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}{pagadaEnLinea(f) && <span className="etq asistio por-cobrar" data-pago="pagada">Pagado · S/ {Number(f.tarifa_aplicada).toFixed(2)}</span>}</td>
+                          <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span>{porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}{pagadaEnLinea(f) && <span className="etq asistio por-cobrar" data-pago="pagada">Pagado · S/ {Number(f.tarifa_aplicada).toFixed(2)}</span>}{reembolsada(f) && <span className="etq por-cobrar" data-pago="reembolsada">Reembolsado</span>}</td>
                           <td data-label="Acción" className="acciones">
                             {f.estado_asistencia === 'pendiente' ? (
                               <>

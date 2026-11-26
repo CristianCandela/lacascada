@@ -229,3 +229,13 @@ export function evaluarPago(medio, datos = {}, ahora = new Date()) {
 }
 
 export const etiquetaMedioPago = (id) => (METODOS_PAGO_RESERVA.find((m) => m.id === id) || {}).etiqueta || String(id || '').toUpperCase();
+
+// ---------- Reembolso al cancelar una reserva pagada (política simulada) ----------
+export const HORAS_REEMBOLSO = 2; // debe coincidir con el intervalo de cancelar_reserva en la base
+
+// { pagada, reembolsa, monto }: si la reserva está pagada y todavía faltan HORAS_REEMBOLSO horas o más.
+export function politicaReembolso(reserva, ahora = new Date()) {
+  const pagada = Boolean(reserva) && reserva.estado_pago === 'pagada' && reserva.tarifa_aplicada != null;
+  const faltan = new Date(reserva && (reserva.fecha_hora_cita || reserva.fecha_hora)).getTime() - ahora.getTime();
+  return { pagada, reembolsa: pagada && faltan >= HORAS_REEMBOLSO * 3600000, monto: pagada ? Number(reserva.tarifa_aplicada) : 0 };
+}

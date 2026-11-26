@@ -167,3 +167,14 @@ test('pago simulado: Luhn, formatos y validación de cada medio', async () => {
   assert.ok(L.evaluarPago('yape', { celular: '987654321', codigo: '000000' }, hoy).rechazo);
   assert.equal(L.evaluarPago('plin', { celular: '912345678' }, hoy).ok, true);
 });
+
+test('política de reembolso: completo con 2 h o más de anticipación, sin reembolso si falta menos', async () => {
+  const { politicaReembolso } = await import('../src/features/cliente/logica.js');
+  const ahora = new Date(2026, 10, 26, 10, 0);
+  const en = (h) => new Date(ahora.getTime() + h * 3600000).toISOString();
+  const pagada = (h) => ({ estado_pago: 'pagada', tarifa_aplicada: 15, fecha_hora_cita: en(h) });
+  assert.deepEqual(politicaReembolso(pagada(3), ahora), { pagada: true, reembolsa: true, monto: 15 });
+  assert.equal(politicaReembolso(pagada(2), ahora).reembolsa, true);          // justo 2 h: aún reembolsa
+  assert.equal(politicaReembolso(pagada(1.5), ahora).reembolsa, false);
+  assert.equal(politicaReembolso({ estado_pago: 'pendiente', tarifa_aplicada: 15, fecha_hora_cita: en(5) }, ahora).pagada, false);
+});

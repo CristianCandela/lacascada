@@ -160,3 +160,36 @@ test('pago en línea del cliente: queda registrado, suma en caja y en ingresos d
   const caja = llamar('u1', 'resumen_completo', { p_sede: 'Túpac Amaru' }).data.cobros;
   assert.ok(caja.visa >= cita.tarifa_aplicada, 'la caja del día incluye Visa');
 });
+
+test('cancelar una reserva pagada: reembolso con 2 h o más, sin reembolso si falta menos', () => {
+  const { llamar, db } = entorno();
+  const ingresos = () => llamar('u2', 'ingresos_resumen', { p_dias: 30 }).data;
+  const base = ingresos().total;
+
+  // 1) pagada con tiempo de sobra -> reembolso completo, el pago deja de sumar
+  const id1 = llamar('u3', 'reservar_sauna', { p_sede: 'Túpac Amaru', p_fecha_hora: manana(17) }).data;
+  llamar('u3', 'pagar_reserva_sauna', { p_id_cita: id1, p_medio: 'yape' });
+  assert.equal(ingresos().total, base + 15);
+  const r1 = llamar('u3', 'cancelar_reserva', { p_id_cita: id1 }).data;
+  assert.equal(r1.ok, true); assert.equal(r1.reembolso, true); assert.equal(r1.monto, 15);
+  const c1 = db.citas.find((c) => c.id_cita === id1);
+  assert.equal(c1.estado_asistencia, 'cancelo'); assert.equal(c1.estado_pago, 'reembolsada');
+  assert.equal(db.pagos.find((p) => p.id_cita === id1).estado, 'anulado');
+  assert.equal(ingresos().total, base, 'el reembolso resta de los ingresos');
+  assert.equal(llamar('u3', 'mis_reservas').data.find((r) => r.id_cita === id1).estado_pago, 'reembolsada');
+
+  // 2) pagada pero faltan menos de 2 h -> se cancela y el pago se retiene
+  const id2 = llamar('u3', 'reservar_sauna', { p_sede: 'Túpac Amaru', p_fecha_hora: manana(18) }).data;
+  llamar('u3', 'pagar_reserva_sauna', { p_id_cita: id2, p_medio: 'visa' });
+  db.citas.find((c) => c.id_cita === id2).fecha_hora_cita = new Date(Date.now() + 3600000).toISOString();
+  const r2 = llamar('u3', 'cancelar_reserva', { p_id_cita: id2 }).data;
+  assert.equal(r2.ok, true); assert.equal(r2.reembolso, false); assert.equal(r2.monto, 15);
+  assert.equal(db.citas.find((c) => c.id_cita === id2).estado_asistencia, 'cancelo');
+  assert.equal(db.pagos.find((p) => p.id_cita === id2).estado === 'anulado', false);
+  assert.equal(ingresos().total, base + 15, 'el pago retenido sigue sumando');
+
+  // 3) sin pagar -> se cancela sin más
+  const id3 = llamar('u3', 'reservar_sauna', { p_sede: 'Túpac Amaru', p_fecha_hora: manana(19) }).data;
+  const r3 = llamar('u3', 'cancelar_reserva', { p_id_cita: id3 }).data;
+  assert.deepEqual(r3, { ok: true, reembolso: false });
+});
