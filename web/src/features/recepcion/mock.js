@@ -294,8 +294,8 @@ export const mock = {
         .map((c) => ({ id_cita: c.id_cita, id_cliente: c.id_cliente, nombre: ctx.db.clientes.find((x) => x.id_cliente === c.id_cliente).nombre, fecha_hora_cita: c.fecha_hora_cita }));
       return { data: {
         cobros: {
-          efectivo: suma((p) => p.medio === 'efectivo'), yape: suma((p) => p.medio === 'yape'), plin: suma((p) => p.medio === 'plin'),
-          n_efectivo: cuenta((p) => p.medio === 'efectivo'), n_yape: cuenta((p) => p.medio === 'yape'), n_plin: cuenta((p) => p.medio === 'plin'),
+          efectivo: suma((p) => p.medio === 'efectivo'), yape: suma((p) => p.medio === 'yape'), plin: suma((p) => p.medio === 'plin'), visa: suma((p) => p.medio === 'visa'),
+          n_efectivo: cuenta((p) => p.medio === 'efectivo'), n_yape: cuenta((p) => p.medio === 'yape'), n_plin: cuenta((p) => p.medio === 'plin'), n_visa: cuenta((p) => p.medio === 'visa'),
           membresia: suma((p) => p.concepto === 'membresia'), pase_dia: suma((p) => p.concepto === 'pase_dia'), sauna: suma((p) => p.concepto === 'sauna'),
           anulados: ctx.db.pagos.filter((p) => mismoDia(p.pagado_en) && p.estado === 'anulado').length
         },

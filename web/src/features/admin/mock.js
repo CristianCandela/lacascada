@@ -8,6 +8,32 @@ export const mock = {
   usuarios: {},
   iniciar(db) { iniciarTablas(db); },
   rpc: {
+    // ingresos_resumen(p_dias): total recaudado, por medio, por concepto, serie diaria y lo por cobrar (solo administrador).
+    ingresos_resumen(a, ctx) {
+      if (!esAdmin(ctx)) return denegado();
+      const dias = Math.min(Math.max(a.p_dias == null ? 30 : a.p_dias, 1), 365);
+      const hoy = hoyLima();
+      const clave = (iso) => new Date(new Date(iso).getTime() - 5 * 3600 * 1000).toISOString().slice(0, 10);
+      const dia0 = new Date(`${hoy}T00:00:00Z`); dia0.setUTCDate(dia0.getUTCDate() - (dias - 1));
+      const desde = dia0.toISOString().slice(0, 10);
+      const pagos = ctx.db.pagos.filter((p) => p.estado !== 'anulado' && clave(p.pagado_en) >= desde);
+      const suma = (f) => pagos.filter(f).reduce((s, p) => s + p.monto, 0);
+      const serie = [];
+      for (let i = 0; i < dias; i += 1) {
+        const d = new Date(dia0); d.setUTCDate(d.getUTCDate() + i);
+        const k = d.toISOString().slice(0, 10);
+        serie.push({ dia: k, total: pagos.filter((p) => clave(p.pagado_en) === k).reduce((s, p) => s + p.monto, 0) });
+      }
+      const pend = ctx.db.citas.filter((c) => c.servicio === 'sauna' && c.estado_pago === 'pendiente' && c.estado_asistencia === 'pendiente');
+      return ok({
+        dias, total: suma(() => true), n_pagos: pagos.length,
+        por_medio: { efectivo: suma((p) => p.medio === 'efectivo'), yape: suma((p) => p.medio === 'yape'), plin: suma((p) => p.medio === 'plin'), visa: suma((p) => p.medio === 'visa') },
+        por_concepto: { membresia: suma((p) => p.concepto === 'membresia'), pase_dia: suma((p) => p.concepto === 'pase_dia'), sauna: suma((p) => p.concepto === 'sauna') },
+        por_dia: serie,
+        por_cobrar: { n: pend.length, monto: pend.reduce((s, c) => s + (c.tarifa_aplicada || 0), 0) }
+      });
+    },
+
     // Clientes con membresía vigente que no asisten hace p_dias días (o nunca asistieron).
     clientes_inactivos(a, ctx) {
       if (!esAdmin(ctx)) return denegado();

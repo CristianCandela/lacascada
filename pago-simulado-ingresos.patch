@@ -1,0 +1,1018 @@
+diff --git a/supabase/migrations/20261126000000_pago_simulado_ingresos.sql b/supabase/migrations/20261126000000_pago_simulado_ingresos.sql
+new file mode 100644
+index 0000000..cd7c5a2
+--- /dev/null
++++ b/supabase/migrations/20261126000000_pago_simulado_ingresos.sql
+@@ -0,0 +1,210 @@
++-- =====================================================================
++-- Pago simulado de la reserva de sauna + ingresos del administrador.
++--  * pagar_reserva_sauna(p_id_cita, p_medio): el cliente paga su propia reserva con Visa, Yape o Plin
++--    (SIMULADO: no hay pasarela; no se guardan datos de tarjeta). Registra el pago, marca la cita como
++--    pagada y deja el evento en la bitácora. Al instante aparece en caja, resumen y trazabilidad.
++--  * resumen_dia / resumen_completo: ahora incluyen 'visa' (antes los pagos con Visa no sumaban al
++--    cuadre) y siguen siendo VOLATILE porque llaman a cerrar_citas_vencidas (escribe).
++--  * ingresos_resumen(p_dias): solo administrador. Total recaudado, por medio, por concepto, serie
++--    diaria y lo que está por cobrar (sauna reservado y aún sin pagar).
++-- Ejecutar después de 20261125000000_sauna_cliente_cobro.sql.
++-- =====================================================================
++
++-- ---------- Resumen del día y resumen completo con Visa (VOLATILE) ----------
++create or replace function public.resumen_dia(p_sede text)
++returns json
++language plpgsql
++volatile
++security definer
++set search_path = public
++as $$
++declare
++  v_cap int := coalesce((select capacidad from public.aforos where servicio = 'sauna' and sede = p_sede), 0);
++begin
++  perform public.cerrar_citas_vencidas();
++  if not public.es_personal() then
++    raise exception 'Acceso denegado: solo el personal' using errcode = '42501';
++  end if;
++  return json_build_object(
++    'entradas', (select count(*)::int from public.checkins k
++                 where k.sede = p_sede and (k.entrada_en at time zone 'America/Lima')::date = public.hoy_lima()),
++    'cobros', json_build_object(
++      'efectivo', coalesce((select sum(monto) from public.pagos where estado = 'registrado' and medio = 'efectivo'
++                            and (pagado_en at time zone 'America/Lima')::date = public.hoy_lima()), 0),
++      'yape',     coalesce((select sum(monto) from public.pagos where estado = 'registrado' and medio = 'yape'
++                            and (pagado_en at time zone 'America/Lima')::date = public.hoy_lima()), 0),
++      'plin',     coalesce((select sum(monto) from public.pagos where estado = 'registrado' and medio = 'plin'
++                            and (pagado_en at time zone 'America/Lima')::date = public.hoy_lima()), 0),
++      'visa',     coalesce((select sum(monto) from public.pagos where estado = 'registrado' and medio = 'visa'
++                            and (pagado_en at time zone 'America/Lima')::date = public.hoy_lima()), 0)),
++    'no_shows', (select count(*)::int from public.citas c
++                 where c.servicio = 'sauna' and c.sede = p_sede and c.estado_asistencia = 'no_asistio'
++                   and (c.fecha_hora_cita at time zone 'America/Lima')::date = public.hoy_lima()),
++    'turnos', (select json_agg(json_build_object(
++                 'hora', ((extract(hour from s.slot at time zone 'America/Lima')::int + 11) % 12 + 1) || ':00 '
++                         || case when extract(hour from s.slot at time zone 'America/Lima') >= 12 then 'pm' else 'am' end,
++                 'ocupados', (select count(*)::int from public.citas c
++                              where c.servicio = 'sauna' and c.sede = p_sede and c.estado_asistencia <> 'cancelo'
++                                and date_trunc('hour', c.fecha_hora_cita) = s.slot),
++                 'capacidad', v_cap) order by s.slot)
++               from (select date_trunc('hour', now()) + (i * interval '1 hour') as slot from generate_series(0, 1) i) s));
++end;
++$$;
++revoke all on function public.resumen_dia(text) from public, anon;
++grant execute on function public.resumen_dia(text) to authenticated;
++
++create or replace function public.resumen_completo(p_sede text default null)
++returns json
++language plpgsql
++volatile
++security definer
++set search_path = public
++as $$
++declare
++  v_sede text := coalesce(p_sede, 'Santa Rosa');
++  hoy    date := public.hoy_lima();
++begin
++  perform public.cerrar_citas_vencidas();
++  if not public.es_personal() then
++    raise exception 'Acceso denegado: solo el personal' using errcode = '42501';
++  end if;
++  return json_build_object(
++    'cobros', (select json_build_object(
++        'efectivo', coalesce(sum(monto) filter (where estado = 'registrado' and medio = 'efectivo'), 0),
++        'yape',     coalesce(sum(monto) filter (where estado = 'registrado' and medio = 'yape'), 0),
++        'plin',     coalesce(sum(monto) filter (where estado = 'registrado' and medio = 'plin'), 0),
++        'visa',     coalesce(sum(monto) filter (where estado = 'registrado' and medio = 'visa'), 0),
++        'n_efectivo', count(*) filter (where estado = 'registrado' and medio = 'efectivo'),
++        'n_yape',     count(*) filter (where estado = 'registrado' and medio = 'yape'),
++        'n_plin',     count(*) filter (where estado = 'registrado' and medio = 'plin'),
++        'n_visa',     count(*) filter (where estado = 'registrado' and medio = 'visa'),
++        'membresia', coalesce(sum(monto) filter (where estado = 'registrado' and concepto = 'membresia'), 0),
++        'pase_dia',  coalesce(sum(monto) filter (where estado = 'registrado' and concepto = 'pase_dia'), 0),
++        'sauna',     coalesce(sum(monto) filter (where estado = 'registrado' and concepto = 'sauna'), 0),
++        'anulados',  count(*) filter (where estado = 'anulado'))
++      from public.pagos where (pagado_en at time zone 'America/Lima')::date = hoy),
++    'sauna', (select json_build_object(
++        'asistio',    count(*) filter (where estado_asistencia = 'asistio'),
++        'no_asistio', count(*) filter (where estado_asistencia = 'no_asistio'),
++        'pendientes', count(*) filter (where estado_asistencia = 'pendiente'))
++      from public.citas where servicio = 'sauna' and sede = v_sede and estado_asistencia <> 'cancelo'
++        and (fecha_hora_cita at time zone 'America/Lima')::date = hoy),
++    'entradas',   (select count(*)::int from public.checkins
++                   where sede = v_sede and servicio = 'gimnasio' and (entrada_en at time zone 'America/Lima')::date = hoy),
++    'por_codigo', (select count(*)::int from public.checkins
++                   where sede = v_sede and servicio = 'gimnasio' and metodo = 'codigo'
++                     and (entrada_en at time zone 'America/Lima')::date = hoy),
++    'por_hora',   (select coalesce(json_agg(json_build_object('hora', h, 'cuenta', n) order by h), '[]'::json)
++                   from (select extract(hour from entrada_en at time zone 'America/Lima')::int as h, count(*)::int as n
++                         from public.checkins
++                         where sede = v_sede and servicio = 'gimnasio' and (entrada_en at time zone 'America/Lima')::date = hoy
++                         group by 1) z),
++    'sin_checkin', (select coalesce(json_agg(json_build_object('id_cita', c.id_cita, 'id_cliente', c.id_cliente,
++                                                               'nombre', cl.nombre, 'fecha_hora_cita', c.fecha_hora_cita)
++                                             order by c.fecha_hora_cita), '[]'::json)
++                    from public.citas c join public.clientes cl on cl.id_cliente = c.id_cliente
++                    where c.servicio = 'sauna' and c.sede = v_sede and c.estado_pago = 'pagada'
++                      and c.estado_asistencia = 'pendiente'
++                      and (c.fecha_hora_cita at time zone 'America/Lima')::date = hoy
++                      and c.fecha_hora_cita + interval '1 hour' <= now()));
++end;
++$$;
++revoke all on function public.resumen_completo(text) from public, anon;
++grant execute on function public.resumen_completo(text) to authenticated;
++
++-- ---------- Pago de la reserva por el propio cliente (simulado) ----------
++create or replace function public.pagar_reserva_sauna(p_id_cita uuid, p_medio text default 'visa')
++returns json
++language plpgsql
++volatile
++security definer
++set search_path = public
++as $$
++declare
++  v_id    uuid := public.id_cliente_actual();
++  v_medio text := lower(trim(coalesce(p_medio, 'visa')));
++  v_ci    public.citas;
++  v_monto numeric;
++  v_pago  uuid;
++  v_pagado timestamptz;
++begin
++  if public.rol_actual() is distinct from 'cliente' or v_id is null then
++    raise exception 'Acceso denegado: solo los clientes' using errcode = '42501';
++  end if;
++  if v_medio not in ('visa', 'yape', 'plin') then
++    raise exception 'Medio de pago no válido';
++  end if;
++  select * into v_ci from public.citas where id_cita = p_id_cita and id_cliente = v_id and servicio = 'sauna' for update;
++  if not found then
++    raise exception 'La reserva no existe.';
++  end if;
++  if v_ci.estado_asistencia <> 'pendiente' then
++    raise exception 'La reserva ya no está vigente.';
++  end if;
++  if v_ci.estado_pago = 'pagada' then
++    raise exception 'Esta reserva ya está pagada.';
++  end if;
++  v_monto := coalesce(v_ci.tarifa_aplicada, public.tarifa('sauna_afiliado'));
++  insert into public.pagos (id_cliente, id_cita, concepto, monto, medio)
++  values (v_id, p_id_cita, 'sauna', v_monto, v_medio)
++  returning id_pago, pagado_en into v_pago, v_pagado;
++  update public.citas set estado_pago = 'pagada', tarifa_aplicada = v_monto where id_cita = p_id_cita;
++  perform public.registrar_evento('pagos', 'pago', v_pago, v_id,
++                                  jsonb_build_object('concepto', 'sauna', 'monto', v_monto, 'medio', v_medio,
++                                                     'id_cita', p_id_cita, 'origen', 'cliente_en_linea'));
++  return json_build_object('ok', true, 'monto', v_monto, 'medio', v_medio, 'pagado_en', v_pagado,
++                           'operacion', 'OP-' || upper(substr(replace(v_pago::text, '-', ''), 1, 8)));
++end;
++$$;
++revoke all on function public.pagar_reserva_sauna(uuid, text) from public, anon;
++grant execute on function public.pagar_reserva_sauna(uuid, text) to authenticated;
++
++-- ---------- Ingresos para el administrador ----------
++create or replace function public.ingresos_resumen(p_dias int default 30)
++returns json
++language plpgsql
++stable
++security definer
++set search_path = public
++as $$
++declare
++  v_dias int := least(greatest(coalesce(p_dias, 30), 1), 365);
++  hoy    date := public.hoy_lima();
++  desde  date := public.hoy_lima() - (least(greatest(coalesce(p_dias, 30), 1), 365) - 1);
++begin
++  if public.rol_actual() is distinct from 'administrador' then
++    raise exception 'Acceso denegado: solo el administrador' using errcode = '42501';
++  end if;
++  return json_build_object(
++    'dias', v_dias,
++    'total', coalesce((select sum(monto) from public.pagos
++                       where estado = 'registrado' and (pagado_en at time zone 'America/Lima')::date >= desde), 0),
++    'n_pagos', (select count(*)::int from public.pagos
++                where estado = 'registrado' and (pagado_en at time zone 'America/Lima')::date >= desde),
++    'por_medio', (select json_build_object(
++        'efectivo', coalesce(sum(monto) filter (where medio = 'efectivo'), 0),
++        'yape',     coalesce(sum(monto) filter (where medio = 'yape'), 0),
++        'plin',     coalesce(sum(monto) filter (where medio = 'plin'), 0),
++        'visa',     coalesce(sum(monto) filter (where medio = 'visa'), 0))
++      from public.pagos where estado = 'registrado' and (pagado_en at time zone 'America/Lima')::date >= desde),
++    'por_concepto', (select json_build_object(
++        'membresia', coalesce(sum(monto) filter (where concepto = 'membresia'), 0),
++        'pase_dia',  coalesce(sum(monto) filter (where concepto = 'pase_dia'), 0),
++        'sauna',     coalesce(sum(monto) filter (where concepto = 'sauna'), 0))
++      from public.pagos where estado = 'registrado' and (pagado_en at time zone 'America/Lima')::date >= desde),
++    'por_dia', (select coalesce(json_agg(json_build_object('dia', g.d::date, 'total', coalesce(t.total, 0)) order by g.d), '[]'::json)
++                from generate_series(desde::timestamp, hoy::timestamp, interval '1 day') g(d)
++                left join (select (pagado_en at time zone 'America/Lima')::date as dia, sum(monto) as total
++                           from public.pagos where estado = 'registrado'
++                             and (pagado_en at time zone 'America/Lima')::date >= desde
++                           group by 1) t on t.dia = g.d::date),
++    'por_cobrar', (select json_build_object('n', count(*)::int, 'monto', coalesce(sum(tarifa_aplicada), 0))
++                   from public.citas
++                   where servicio = 'sauna' and estado_pago = 'pendiente' and estado_asistencia = 'pendiente')
++  );
++end;
++$$;
++revoke all on function public.ingresos_resumen(int) from public, anon;
++grant execute on function public.ingresos_resumen(int) to authenticated;
++
++notify pgrst, 'reload schema';
+diff --git a/web/src/components/Agenda.jsx b/web/src/components/Agenda.jsx
+index 6eb2b9e..8551512 100644
+--- a/web/src/components/Agenda.jsx
++++ b/web/src/components/Agenda.jsx
+@@ -1,4 +1,4 @@
+-import { useCallback, useEffect, useState } from 'react';
++import { useCallback, useEffect, useRef, useState } from 'react';
+ import { supabase, mensajeError } from '../lib/supabase';
+ import {
+   agruparPorDia, citasVigentes, claveDia, contarPorDia, diasDesde, hoyLocal,
+@@ -31,6 +31,7 @@ function etiquetaDia(dia) {
+ 
+ // Cita de sauna con el pago pendiente (se cobra en recepción).
+ const porCobrar = (f) => f.servicio === 'sauna' && f.estado_pago === 'pendiente' && f.estado_asistencia !== 'cancelo';
++const pagadaEnLinea = (f) => f.servicio === 'sauna' && f.origen === 'cliente' && f.estado_pago === 'pagada' && f.tarifa_aplicada != null && f.estado_asistencia !== 'cancelo';
+ const textoCobro = (f) => `Por cobrar${f.tarifa_aplicada != null ? ` · S/ ${Number(f.tarifa_aplicada).toFixed(2)}` : ''}`;
+ 
+ function Resumen({ icono, tono, valor, texto }) {
+@@ -110,6 +111,14 @@ export default function Agenda({ perfil, onAviso }) {
+ 
+   useEffect(() => { cargar(); }, [cargar]);
+ 
++  // Refresco automático: las reservas y pagos que entran en línea aparecen solos, sin pulsar «Actualizar».
++  const cargarRef = useRef(cargar);
++  cargarRef.current = cargar;
++  useEffect(() => {
++    const t = setInterval(() => { if (!document.hidden) cargarRef.current(); }, 30000);
++    return () => clearInterval(t);
++  }, []);
++
+   // Reloj para la cola de recordatorios: se actualiza cada minuto.
+   useEffect(() => {
+     const t = setInterval(() => setAhora(new Date()), 60000);
+@@ -394,7 +403,7 @@ export default function Agenda({ perfil, onAviso }) {
+                               )}
+                             </div>
+                           </td>
+-                          <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span>{porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}</td>
++                          <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span>{porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}{pagadaEnLinea(f) && <span className="etq asistio por-cobrar" data-pago="pagada">Pagado · S/ {Number(f.tarifa_aplicada).toFixed(2)}</span>}</td>
+                           <td data-label="Acción" className="acciones">
+                             {f.estado_asistencia === 'pendiente' ? (
+                               <>
+@@ -463,6 +472,7 @@ export default function Agenda({ perfil, onAviso }) {
+                               <small>Sede {f.sede}</small>
+                               {f.origen === 'cliente' && <span className="etq online">Reservó en línea</span>}
+                               {porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}
++                              {pagadaEnLinea(f) && <span className="etq asistio" data-pago="pagada">Pagado · S/ {Number(f.tarifa_aplicada).toFixed(2)}</span>}
+                               {f.confirmada_en && <span className="etq asistio">Confirmó</span>}
+                               {!f.confirmada_en && f.recordatorio_enviado_en && <span className="etq">Recordado</span>}
+                               {altoRiesgo(f, riesgoProx) && (
+diff --git a/web/src/components/agenda.css b/web/src/components/agenda.css
+index 2efe032..56c2fda 100644
+--- a/web/src/components/agenda.css
++++ b/web/src/components/agenda.css
+@@ -62,7 +62,9 @@
+ .agenda .en-curso::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--verde); box-shadow: 0 0 0 3px rgba(22, 163, 74, .2); }
+ .agenda .hora-col { display: flex; flex-direction: column; }
+ .agenda .avatar { width: 38px; height: 38px; }
+-.agenda .acciones { white-space: nowrap; }
++.agenda .acciones { white-space: normal; min-width: 250px; }
++.agenda .acciones > button { margin: 0 4px 4px 0; }
++.agenda .tabla-wrap { overflow-x: auto; }
+ 
+ /* Próximas reservas */
+ .agenda .prox-dia { margin-bottom: 22px; }
+diff --git a/web/src/features/admin/Ingresos.jsx b/web/src/features/admin/Ingresos.jsx
+new file mode 100644
+index 0000000..0115760
+--- /dev/null
++++ b/web/src/features/admin/Ingresos.jsx
+@@ -0,0 +1,115 @@
++// Ingresos (solo administrador): total recaudado, por medio de pago, por concepto y por día.
++// Se actualiza solo: un pago hecho por el cliente en línea aparece aquí sin recargar.
++import { useCallback, useEffect, useState } from 'react';
++import { supabase, mensajeError } from '../../lib/supabase';
++import Icono from '../../components/Iconos';
++import './ingresos.css';
++
++const soles = (n) => `S/ ${Number(n || 0).toFixed(2)}`;
++const PERIODOS = [[1, 'Hoy'], [7, '7 días'], [30, '30 días'], [90, '90 días']];
++const MEDIOS = [['visa', 'Visa', '#1A4FA0'], ['yape', 'Yape', '#7B2D8E'], ['plin', 'Plin', '#0FB5C8'], ['efectivo', 'Efectivo', '#16A34A']];
++const CONCEPTOS = [['membresia', 'Membresías'], ['sauna', 'Sauna'], ['pase_dia', 'Pases del día']];
++const etiquetaDia = (d) => new Date(`${d}T12:00:00`).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
++
++export default function Ingresos({ perfil, onAviso }) {
++  const [dias, setDias] = useState(30);
++  const [d, setD] = useState(null);
++  const [hora, setHora] = useState(null);
++  const admin = perfil && perfil.rol === 'administrador';
++
++  const cargar = useCallback(async () => {
++    if (!admin) return;
++    const r = await supabase.rpc('ingresos_resumen', { p_dias: dias });
++    if (r.error) { onAviso && onAviso(mensajeError(r.error)); return; }
++    onAviso && onAviso('');
++    setD(r.data); setHora(new Date());
++  }, [dias, admin, onAviso]);
++
++  useEffect(() => { setD(null); cargar(); }, [cargar]);
++  useEffect(() => {
++    if (!admin) return undefined;
++    const t = setInterval(() => { if (!document.hidden) cargar(); }, 20000);
++    return () => clearInterval(t);
++  }, [cargar, admin]);
++
++  if (!admin) return <div className="pag-cab"><div><h1>Ingresos</h1><p className="ayuda">Acceso denegado: esta pantalla es solo para el administrador.</p></div></div>;
++
++  const total = d ? Number(d.total) : 0;
++  const maxDia = d ? Math.max(1, ...d.por_dia.map((x) => Number(x.total))) : 1;
++  const paso = d && d.por_dia.length > 31 ? 7 : d && d.por_dia.length > 14 ? 3 : 1;
++  const pct = (v) => (total ? Math.round((Number(v) / total) * 100) : 0);
++
++  return (
++    <div className="ing">
++      <div className="pag-cab">
++        <div>
++          <h1>Ingresos</h1>
++          <p className="ayuda">Todo lo recaudado, sin pagos anulados. Los pagos en línea de los clientes aparecen solos{hora ? ` · actualizado ${hora.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}` : ''}.</p>
++        </div>
++        <div className="ing-seg" role="group" aria-label="Periodo">
++          {PERIODOS.map(([n, t]) => (
++            <button key={n} type="button" data-dias={n} aria-pressed={dias === n} onClick={() => setDias(n)}>{t}</button>
++          ))}
++        </div>
++      </div>
++
++      {!d && <p className="vacio">Cargando ingresos…</p>}
++      {d && (
++        <>
++          <div className="kpis">
++            <div className="kpi verde" data-kpi="total">
++              <div className="kpi-cab"><span className="eti">Total recaudado</span><span className="resumen-ico"><Icono n="grafico" tam={20} /></span></div>
++              <div className="num">{soles(d.total)}</div>
++              <div className="det">{d.dias === 1 ? 'Hoy' : `Últimos ${d.dias} días`}</div>
++            </div>
++            <div className="kpi azul">
++              <div className="kpi-cab"><span className="eti">Pagos registrados</span><span className="resumen-ico"><Icono n="check" tam={20} /></span></div>
++              <div className="num">{d.n_pagos}</div>
++              <div className="det">Ticket promedio {soles(d.n_pagos ? total / d.n_pagos : 0)}</div>
++            </div>
++            <div className="kpi naranja" data-kpi="por-cobrar">
++              <div className="kpi-cab"><span className="eti">Por cobrar (sauna)</span><span className="resumen-ico"><Icono n="reloj" tam={20} /></span></div>
++              <div className="num">{soles(d.por_cobrar.monto)}</div>
++              <div className="det">{d.por_cobrar.n} {d.por_cobrar.n === 1 ? 'reserva sin pagar' : 'reservas sin pagar'}</div>
++            </div>
++          </div>
++
++          <div className="ing-dos">
++            <section className="tarjeta">
++              <h2>Por medio de pago</h2>
++              {MEDIOS.map(([k, t, c]) => (
++                <div className="ing-fila" key={k} data-medio={k}>
++                  <div className="ing-fila-cab"><b><i style={{ background: c }} />{t}</b><span>{soles(d.por_medio[k])} · {pct(d.por_medio[k])} %</span></div>
++                  <div className="ing-pista"><span style={{ width: `${pct(d.por_medio[k])}%`, background: c }} /></div>
++                </div>
++              ))}
++            </section>
++            <section className="tarjeta">
++              <h2>Por concepto</h2>
++              {CONCEPTOS.map(([k, t]) => (
++                <div className="ing-fila" key={k} data-concepto={k}>
++                  <div className="ing-fila-cab"><b>{t}</b><span>{soles(d.por_concepto[k])} · {pct(d.por_concepto[k])} %</span></div>
++                  <div className="ing-pista"><span style={{ width: `${pct(d.por_concepto[k])}%` }} /></div>
++                </div>
++              ))}
++            </section>
++          </div>
++
++          <section className="tarjeta">
++            <h2>Ingresos por día</h2>
++            {total === 0 && <p className="vacio">Aún no hay pagos en este periodo.</p>}
++            <div className="ing-barras" role="img" aria-label={`Ingresos por día, total ${soles(d.total)}`}>
++              {d.por_dia.map((x, i) => (
++                <div className="ing-col" key={x.dia} title={`${etiquetaDia(x.dia)}: ${soles(x.total)}`}>
++                  <span className="ing-valor">{Number(x.total) > 0 && d.por_dia.length <= 14 ? Math.round(x.total) : ''}</span>
++                  <i style={{ height: `${Math.max(Number(x.total) > 0 ? 4 : 0, (Number(x.total) / maxDia) * 100)}%` }} />
++                  <small>{(d.por_dia.length - 1 - i) % paso === 0 ? etiquetaDia(x.dia) : ''}</small>
++                </div>
++              ))}
++            </div>
++          </section>
++        </>
++      )}
++    </div>
++  );
++}
+diff --git a/web/src/features/admin/index.js b/web/src/features/admin/index.js
+index 1fefedf..87f00ca 100644
+--- a/web/src/features/admin/index.js
++++ b/web/src/features/admin/index.js
+@@ -1,12 +1,14 @@
+ // Dueño: Dennis (rol administrador). Aquí se declaran las pantallas de administración.
+ import PanelNoShows from '../../components/PanelNoShows';
+ import Bitacora from '../../components/Bitacora';
++import Ingresos from './Ingresos';
+ import { PantallaMembresias, PantallaReactivacion, PantallaPersonal } from './PantallasAdmin';
+ 
+ const PERSONAL = ['recepcionista', 'administrador'];
+ 
+ // admin: true muestra la insignia "Admin". Los componentes validan el rol y muestran "Acceso denegado".
+ export const modulos = [
++  { id: 'ingresos', texto: 'Ingresos', icono: 'grafico', roles: PERSONAL, admin: true, Componente: Ingresos },
+   { id: 'panel', texto: 'Panel de no-shows', icono: 'grafico', roles: PERSONAL, admin: true, Componente: PanelNoShows },
+   { id: 'membresias', texto: 'Planes y membresías', icono: 'agenda', roles: PERSONAL, admin: true, Componente: PantallaMembresias },
+   { id: 'reactivacion', texto: 'Reactivación', icono: 'alerta', roles: PERSONAL, admin: true, Componente: PantallaReactivacion },
+diff --git a/web/src/features/admin/ingresos.css b/web/src/features/admin/ingresos.css
+new file mode 100644
+index 0000000..bf6b7e5
+--- /dev/null
++++ b/web/src/features/admin/ingresos.css
+@@ -0,0 +1,19 @@
++.ing .ing-seg { display: inline-flex; padding: 4px; gap: 2px; border-radius: 14px; background: var(--gris-suave); }
++.ing .ing-seg button { min-height: 38px; padding: 7px 16px; background: transparent; color: var(--suave); border-radius: 10px; font-weight: 600; }
++.ing .ing-seg button[aria-pressed="true"] { background: #fff; color: var(--azul-fuerte); box-shadow: 0 1px 3px rgba(20, 40, 60, .14); }
++.ing .ing-dos { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px; }
++.ing .ing-dos .tarjeta { margin-bottom: 0; }
++.ing .ing-fila { margin-top: 16px; }
++.ing .ing-fila-cab { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 7px; font-size: .9rem; }
++.ing .ing-fila-cab i { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; }
++.ing .ing-fila-cab span { color: var(--suave); font-variant-numeric: tabular-nums; }
++.ing .ing-pista { height: 10px; border-radius: 99px; background: var(--gris-suave); overflow: hidden; }
++.ing .ing-pista span { display: block; height: 100%; min-width: 0; border-radius: 99px; background: var(--azul-fuerte); transition: width .4s ease; }
++.ing .ing-barras { display: flex; align-items: stretch; gap: 4px; height: 240px; margin-top: 14px; padding-top: 6px; border-bottom: 1px solid var(--borde); }
++.ing .ing-col { position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
++.ing .ing-col i { display: block; width: 100%; max-width: 34px; border-radius: 8px 8px 0 0; background: linear-gradient(180deg, #29A9E1, #0A6A94); }
++.ing .ing-col:hover i { filter: brightness(1.12); }
++.ing .ing-valor { margin-bottom: 4px; font-size: .72rem; color: var(--suave); font-variant-numeric: tabular-nums; }
++.ing .ing-col small { position: absolute; top: 100%; margin-top: 6px; white-space: nowrap; font-size: .72rem; color: var(--suave); }
++.ing .tarjeta:last-child { padding-bottom: 44px; }
++@media (prefers-reduced-motion: reduce) { .ing .ing-pista span { transition: none; } }
+diff --git a/web/src/features/admin/mock.js b/web/src/features/admin/mock.js
+index 8aad7a4..2de45ff 100644
+--- a/web/src/features/admin/mock.js
++++ b/web/src/features/admin/mock.js
+@@ -8,6 +8,32 @@ export const mock = {
+   usuarios: {},
+   iniciar(db) { iniciarTablas(db); },
+   rpc: {
++    // ingresos_resumen(p_dias): total recaudado, por medio, por concepto, serie diaria y lo por cobrar (solo administrador).
++    ingresos_resumen(a, ctx) {
++      if (!esAdmin(ctx)) return denegado();
++      const dias = Math.min(Math.max(a.p_dias == null ? 30 : a.p_dias, 1), 365);
++      const hoy = hoyLima();
++      const clave = (iso) => new Date(new Date(iso).getTime() - 5 * 3600 * 1000).toISOString().slice(0, 10);
++      const dia0 = new Date(`${hoy}T00:00:00Z`); dia0.setUTCDate(dia0.getUTCDate() - (dias - 1));
++      const desde = dia0.toISOString().slice(0, 10);
++      const pagos = ctx.db.pagos.filter((p) => p.estado !== 'anulado' && clave(p.pagado_en) >= desde);
++      const suma = (f) => pagos.filter(f).reduce((s, p) => s + p.monto, 0);
++      const serie = [];
++      for (let i = 0; i < dias; i += 1) {
++        const d = new Date(dia0); d.setUTCDate(d.getUTCDate() + i);
++        const k = d.toISOString().slice(0, 10);
++        serie.push({ dia: k, total: pagos.filter((p) => clave(p.pagado_en) === k).reduce((s, p) => s + p.monto, 0) });
++      }
++      const pend = ctx.db.citas.filter((c) => c.servicio === 'sauna' && c.estado_pago === 'pendiente' && c.estado_asistencia === 'pendiente');
++      return ok({
++        dias, total: suma(() => true), n_pagos: pagos.length,
++        por_medio: { efectivo: suma((p) => p.medio === 'efectivo'), yape: suma((p) => p.medio === 'yape'), plin: suma((p) => p.medio === 'plin'), visa: suma((p) => p.medio === 'visa') },
++        por_concepto: { membresia: suma((p) => p.concepto === 'membresia'), pase_dia: suma((p) => p.concepto === 'pase_dia'), sauna: suma((p) => p.concepto === 'sauna') },
++        por_dia: serie,
++        por_cobrar: { n: pend.length, monto: pend.reduce((s, c) => s + (c.tarifa_aplicada || 0), 0) }
++      });
++    },
++
+     // Clientes con membresía vigente que no asisten hace p_dias días (o nunca asistieron).
+     clientes_inactivos(a, ctx) {
+       if (!esAdmin(ctx)) return denegado();
+diff --git a/web/src/features/cliente/MisReservas.jsx b/web/src/features/cliente/MisReservas.jsx
+index af1cd2d..dce1fc0 100644
+--- a/web/src/features/cliente/MisReservas.jsx
++++ b/web/src/features/cliente/MisReservas.jsx
+@@ -2,6 +2,7 @@
+ import React, { useState, useEffect, useCallback } from 'react';
+ import { supabase } from '../../lib/supabase';
+ import { etiquetaEstadoReserva, formatearFechaPe, claseBadgeEstado } from './logica';
++import PagoSimulado from './PagoSimulado';
+ import './estilos.css';
+ 
+ export default function MisReservas({ perfil, onAviso }) {
+@@ -10,14 +11,18 @@ export default function MisReservas({ perfil, onAviso }) {
+   const [fechaHora, setFechaHora] = useState('');
+   const [cupos, setCupos] = useState(null);
+   const [cargando, setCargando] = useState(false);
++  const [pagando, setPagando] = useState(null); // reserva que se está pagando (ventana de pago)
+ 
+   const cargarReservas = useCallback(async () => {
+     try {
+       const { data, error } = await supabase.rpc('mis_reservas');
+       if (error) throw error;
+-      setReservas(Array.isArray(data) ? data : []);
++      const lista = Array.isArray(data) ? data : [];
++      setReservas(lista);
++      return lista;
+     } catch (err) {
+       if (onAviso) onAviso(err.message || 'No se pudieron cargar tus reservas.', 'error');
++      return [];
+     }
+   }, [onAviso]);
+ 
+@@ -95,7 +100,10 @@ export default function MisReservas({ perfil, onAviso }) {
+         if (onAviso) onAviso('¡Reserva de sauna agendada con éxito!', 'exito');
+         setFechaHora('');
+         setCupos(null);
+-        await cargarReservas();
++        const lista = await cargarReservas();
++        // El pago se ofrece de inmediato; si el cliente lo cierra, la reserva queda «por pagar».
++        const nueva = lista.find((r) => r.id_cita === data);
++        if (nueva && nueva.estado_pago === 'pendiente') setPagando(nueva);
+       } else {
+         if (onAviso) onAviso('No se pudo registrar la reserva.', 'error');
+       }
+@@ -187,7 +195,7 @@ export default function MisReservas({ perfil, onAviso }) {
+                   <div>{formatearFechaPe(reserva.fecha_hora_cita || reserva.fecha_hora)}</div>
+                   {reserva.estado_pago === 'pendiente' && (reserva.estado_asistencia === 'pendiente') && (
+                     <div className="cli-pago-nota" data-pago="pendiente">
+-                      Por pagar{reserva.tarifa_aplicada != null ? `: S/ ${Number(reserva.tarifa_aplicada).toFixed(2)}` : ''} · se paga en recepción al llegar (efectivo, Yape o Plin)
++                      Por pagar{reserva.tarifa_aplicada != null ? `: S/ ${Number(reserva.tarifa_aplicada).toFixed(2)}` : ''} · paga ahora en línea o en recepción al llegar
+                     </div>
+                   )}
+                   {reserva.estado_pago === 'pagada' && reserva.tarifa_aplicada != null && reserva.estado_asistencia !== 'cancelo' && (
+@@ -198,6 +206,11 @@ export default function MisReservas({ perfil, onAviso }) {
+                   <span className={`cli-badge ${claseBadgeEstado(reserva.estado || reserva.estado_asistencia)}`}>
+                     {etiquetaEstadoReserva(reserva.estado || reserva.estado_asistencia)}
+                   </span>
++                  {reserva.estado_pago === 'pendiente' && reserva.estado_asistencia === 'pendiente' && (
++                    <button type="button" data-accion="pagar-reserva" className="cli-btn-primario cli-btn-pagar" disabled={cargando} onClick={() => setPagando(reserva)}>
++                      Pagar ahora
++                    </button>
++                  )}
+                   {(reserva.estado === 'pendiente' || reserva.estado_asistencia === 'pendiente') && (
+                     <button
+                       onClick={() => handleCancelar(reserva.id_cita)}
+@@ -215,6 +228,14 @@ export default function MisReservas({ perfil, onAviso }) {
+           <p className="ayuda">No tienes reservas registradas.</p>
+         )}
+       </div>
++
++      {pagando && (
++        <PagoSimulado
++          reserva={pagando}
++          onCerrar={() => { setPagando(null); cargarReservas(); }}
++          onPagado={() => { if (onAviso) onAviso('Pago registrado. ¡Gracias!', 'exito'); }}
++        />
++      )}
+     </div>
+   );
+ }
+\ No newline at end of file
+diff --git a/web/src/features/cliente/PagoSimulado.jsx b/web/src/features/cliente/PagoSimulado.jsx
+new file mode 100644
+index 0000000..3e06cb8
+--- /dev/null
++++ b/web/src/features/cliente/PagoSimulado.jsx
+@@ -0,0 +1,164 @@
++// Pago de una reserva de sauna con Visa, Yape o Plin. SIMULADO: no hay pasarela ni cargo real,
++// y los datos de la tarjeta nunca salen del navegador (al servidor solo viaja el medio elegido).
++import React, { useEffect, useRef, useState } from 'react';
++import { supabase } from '../../lib/supabase';
++import {
++  METODOS_PAGO_RESERVA, TARJETA_DE_PRUEBA, evaluarPago, etiquetaMedioPago, formatearFechaPe,
++  formatearTarjeta, formatearVencimiento, soloDigitos
++} from './logica';
++import './pago.css';
++
++const PASOS = {
++  visa: ['Validando los datos de tu tarjeta…', 'Consultando con tu banco…', 'Autorizando el pago…'],
++  yape: ['Verificando el código de aprobación…', 'Confirmando con Yape…'],
++  plin: ['Enviando la solicitud a tu app Plin…', 'Esperando tu aprobación…', 'Confirmando el pago…']
++};
++
++const soles = (n) => `S/ ${Number(n || 0).toFixed(2)}`;
++
++export default function PagoSimulado({ reserva, onCerrar, onPagado, demora = 2400 }) {
++  const [medio, setMedio] = useState('visa');
++  const [datos, setDatos] = useState({ numero: '', titular: '', vence: '', cvv: '', celular: '', codigo: '' });
++  const [errores, setErrores] = useState({});
++  const [fase, setFase] = useState('form'); // form | procesando | ok
++  const [paso, setPaso] = useState(0);
++  const [aviso, setAviso] = useState('');
++  const [recibo, setRecibo] = useState(null);
++  const primero = useRef(null);
++  const monto = reserva.tarifa_aplicada;
++
++  useEffect(() => { if (primero.current) primero.current.focus(); }, [medio]);
++  useEffect(() => {
++    const tecla = (e) => { if (e.key === 'Escape' && fase !== 'procesando') onCerrar(); };
++    window.addEventListener('keydown', tecla);
++    return () => window.removeEventListener('keydown', tecla);
++  }, [fase, onCerrar]);
++
++  const poner = (campo, valor) => { setDatos((d) => ({ ...d, [campo]: valor })); setErrores((e) => ({ ...e, [campo]: undefined })); setAviso(''); };
++  const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
++
++  async function pagar(e) {
++    e.preventDefault();
++    const v = evaluarPago(medio, datos);
++    if (!v.ok && !v.rechazo) { setErrores(v.errores); return; }
++    setFase('procesando'); setPaso(0); setAviso('');
++    const pasos = PASOS[medio];
++    for (let i = 0; i < pasos.length; i += 1) { setPaso(i); await esperar(demora / pasos.length); }
++    if (v.rechazo) { setFase('form'); setAviso(v.rechazo); return; }   // simula el rechazo del banco o de Yape
++    const r = await supabase.rpc('pagar_reserva_sauna', { p_id_cita: reserva.id_cita, p_medio: medio });
++    if (r.error || !r.data || !r.data.ok) {
++      setFase('form');
++      setAviso((r.error && r.error.message) || 'No se pudo registrar el pago. Inténtalo de nuevo.');
++      return;
++    }
++    setRecibo({ ...r.data, ultimos: soloDigitos(datos.numero).slice(-4) });
++    setFase('ok');
++    if (onPagado) onPagado(r.data);
++  }
++
++  const campo = (id, etiqueta, props = {}) => (
++    <div className={`pago-campo${errores[id] ? ' con-error' : ''}`}>
++      <label htmlFor={`pago-${id}`}>{etiqueta}</label>
++      <input id={`pago-${id}`} value={datos[id]} onChange={(e) => poner(id, props.formato ? props.formato(e.target.value) : e.target.value)}
++        aria-invalid={Boolean(errores[id])} aria-describedby={errores[id] ? `pago-${id}-e` : undefined}
++        autoComplete={props.auto} inputMode={props.modo} placeholder={props.ph} maxLength={props.max}
++        ref={props.primero ? primero : undefined} />
++      {errores[id] && <small id={`pago-${id}-e`} className="pago-error">{errores[id]}</small>}
++    </div>
++  );
++
++  return (
++    <div className="pago-fondo" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && fase !== 'procesando') onCerrar(); }}>
++      <div className="pago-modal" role="dialog" aria-modal="true" aria-labelledby="pago-titulo">
++        {fase !== 'ok' && (
++          <>
++            <header className="pago-cab">
++              <div>
++                <h2 id="pago-titulo">Pagar reserva de sauna</h2>
++                <p>Sede {reserva.sede} · {formatearFechaPe(reserva.fecha_hora_cita)}</p>
++              </div>
++              <strong className="pago-monto">{soles(monto)}</strong>
++            </header>
++
++            <div className="pago-metodos" role="tablist" aria-label="Medio de pago">
++              {METODOS_PAGO_RESERVA.map((m) => (
++                <button key={m.id} type="button" role="tab" data-medio={m.id} aria-selected={medio === m.id} disabled={fase === 'procesando'}
++                  className={`pago-metodo ${m.id}`} onClick={() => { setMedio(m.id); setErrores({}); setAviso(''); }}>
++                  <i aria-hidden="true" />{m.etiqueta}
++                </button>
++              ))}
++            </div>
++
++            {fase === 'procesando' ? (
++              <div className="pago-proceso" role="status" aria-live="polite">
++                <span className="pago-spinner" aria-hidden="true" />
++                <strong>{PASOS[medio][paso]}</strong>
++                <small>No cierres esta ventana.</small>
++              </div>
++            ) : (
++              <form onSubmit={pagar} noValidate className="pago-form">
++                {aviso && <p className="pago-rechazo" role="alert">{aviso}</p>}
++
++                {medio === 'visa' && (
++                  <>
++                    <div className="pago-tarjeta" aria-hidden="true">
++                      <span className="pago-chip" />
++                      <b>{datos.numero || '•••• •••• •••• ••••'}</b>
++                      <div><span>{datos.titular.toUpperCase() || 'NOMBRE APELLIDO'}</span><span>{datos.vence || 'MM/AA'}</span></div>
++                      <em>VISA</em>
++                    </div>
++                    {campo('numero', 'Número de tarjeta', { formato: formatearTarjeta, auto: 'cc-number', modo: 'numeric', ph: '0000 0000 0000 0000', max: 19, primero: true })}
++                    {campo('titular', 'Titular', { auto: 'cc-name', ph: 'Como figura en la tarjeta', max: 40 })}
++                    <div className="pago-fila">
++                      {campo('vence', 'Vencimiento', { formato: formatearVencimiento, auto: 'cc-exp', modo: 'numeric', ph: 'MM/AA', max: 5 })}
++                      {campo('cvv', 'CVV', { formato: (v) => soloDigitos(v, 3), auto: 'cc-csc', modo: 'numeric', ph: '123', max: 3 })}
++                    </div>
++                    <button type="button" className="pago-relleno" onClick={() => setDatos((d) => ({ ...d, numero: TARJETA_DE_PRUEBA, titular: d.titular || 'CLIENTE DE PRUEBA', vence: '12/29', cvv: '123' }))}>
++                      Usar tarjeta de prueba
++                    </button>
++                  </>
++                )}
++
++                {medio === 'yape' && (
++                  <>
++                    <p className="pago-ayuda">Abre tu app Yape, genera el <strong>código de aprobación</strong> de 6 dígitos y escríbelo aquí.</p>
++                    {campo('celular', 'Celular Yape', { formato: (v) => soloDigitos(v, 9), auto: 'tel', modo: 'numeric', ph: '9XXXXXXXX', max: 9, primero: true })}
++                    {campo('codigo', 'Código de aprobación', { formato: (v) => soloDigitos(v, 6), modo: 'numeric', ph: '000000', max: 6 })}
++                  </>
++                )}
++
++                {medio === 'plin' && (
++                  <>
++                    <p className="pago-ayuda">Te enviaremos la solicitud de pago a tu app Plin. <strong>Apruébala</strong> con tu huella o clave.</p>
++                    {campo('celular', 'Celular Plin', { formato: (v) => soloDigitos(v, 9), auto: 'tel', modo: 'numeric', ph: '9XXXXXXXX', max: 9, primero: true })}
++                  </>
++                )}
++
++                <button type="submit" className="pago-pagar" data-accion="confirmar-pago">Pagar {soles(monto)} con {etiquetaMedioPago(medio)}</button>
++                <p className="pago-pie"><b>Pago simulado:</b> no se realiza ningún cargo real y no guardamos datos de tarjeta.</p>
++                <button type="button" className="pago-despues" onClick={onCerrar}>Pagar después en recepción</button>
++              </form>
++            )}
++          </>
++        )}
++
++        {fase === 'ok' && recibo && (
++          <div className="pago-ok" role="status">
++            <span className="pago-check" aria-hidden="true">✓</span>
++            <h2 id="pago-titulo">¡Pago aprobado!</h2>
++            <p>Tu reserva de sauna quedó pagada. Solo preséntate en la sede a la hora indicada.</p>
++            <dl className="pago-recibo">
++              <div><dt>Monto</dt><dd>{soles(recibo.monto)}</dd></div>
++              <div><dt>Medio</dt><dd>{etiquetaMedioPago(recibo.medio)}{recibo.ultimos ? ` •••• ${recibo.ultimos}` : ''}</dd></div>
++              <div><dt>N.º de operación</dt><dd data-operacion>{recibo.operacion}</dd></div>
++              <div><dt>Fecha</dt><dd>{formatearFechaPe(recibo.pagado_en || new Date().toISOString())}</dd></div>
++              <div><dt>Reserva</dt><dd>Sede {reserva.sede} · {formatearFechaPe(reserva.fecha_hora_cita)}</dd></div>
++            </dl>
++            <button type="button" className="pago-pagar" data-accion="cerrar-recibo" onClick={onCerrar}>Listo</button>
++            <p className="pago-pie">Comprobante simulado, sin valor tributario.</p>
++          </div>
++        )}
++      </div>
++    </div>
++  );
++}
+diff --git a/web/src/features/cliente/estilos.css b/web/src/features/cliente/estilos.css
+index d245ed3..f9e0119 100644
+--- a/web/src/features/cliente/estilos.css
++++ b/web/src/features/cliente/estilos.css
+@@ -3,7 +3,7 @@
+   display: flex;
+   flex-direction: column;
+   gap: 1.25rem;
+-  max-width: 720px;
++  max-width: 960px;
+   margin: 0 auto;
+   padding: 1rem;
+ }
+@@ -197,3 +197,5 @@
+ }
+ .cli-pago-nota { margin-top: 4px; font-size: .84rem; color: #92400E; }
+ .cli-pago-nota.ok { color: #166534; }
++
++.cli-btn-pagar { width: auto; padding: 8px 16px; min-height: 0; }
+diff --git a/web/src/features/cliente/logica.js b/web/src/features/cliente/logica.js
+index 48f281f..16a46db 100644
+--- a/web/src/features/cliente/logica.js
++++ b/web/src/features/cliente/logica.js
+@@ -155,4 +155,77 @@ export function formatearFechaPe(fechaIso) {
+     }
+   }
+   return formatearFecha(fechaIso);
+-}
+\ No newline at end of file
++}
++// ---------- Pago simulado de la reserva (Visa / Yape / Plin) ----------
++// Nada de esto es una pasarela real: valida el formulario como lo haría una y deja que el servidor registre el pago.
++export const METODOS_PAGO_RESERVA = [
++  { id: 'visa', etiqueta: 'Visa' },
++  { id: 'yape', etiqueta: 'Yape' },
++  { id: 'plin', etiqueta: 'Plin' }
++];
++export const TARJETA_DE_PRUEBA = '4111 1111 1111 1111';
++const TARJETA_RECHAZADA = '4000000000000002'; // simula «fondos insuficientes»
++const CODIGO_YAPE_RECHAZADO = '000000';       // simula «código incorrecto o vencido»
++
++export const soloDigitos = (s, max = 99) => String(s || '').replace(/\D/g, '').slice(0, max);
++
++export function formatearTarjeta(valor) {
++  return soloDigitos(valor, 16).replace(/(\d{4})(?=\d)/g, '$1 ');
++}
++
++export function formatearVencimiento(valor) {
++  const d = soloDigitos(valor, 4);
++  return d.length > 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
++}
++
++// Algoritmo de Luhn: el dígito de control que usan todas las tarjetas.
++export function luhnValido(numero) {
++  const d = soloDigitos(numero);
++  if (d.length < 13) return false;
++  let suma = 0;
++  for (let i = 0; i < d.length; i += 1) {
++    let n = Number(d[d.length - 1 - i]);
++    if (i % 2 === 1) { n *= 2; if (n > 9) n -= 9; }
++    suma += n;
++  }
++  return suma % 10 === 0;
++}
++
++export function vencimientoValido(mmaa, ahora = new Date()) {
++  const m = /^(\d{2})\/(\d{2})$/.exec(mmaa || '');
++  if (!m) return false;
++  const mes = Number(m[1]);
++  const anio = 2000 + Number(m[2]);
++  if (mes < 1 || mes > 12) return false;
++  return anio > ahora.getFullYear() || (anio === ahora.getFullYear() && mes >= ahora.getMonth() + 1);
++}
++
++// Devuelve { ok, errores: { campo: mensaje }, rechazo?: motivo }. «rechazo» simula la respuesta del banco.
++export function evaluarPago(medio, datos = {}, ahora = new Date()) {
++  const errores = {};
++  if (medio === 'visa') {
++    const num = soloDigitos(datos.numero);
++    if (num.length !== 16 || !luhnValido(num)) errores.numero = 'Revisa el número de tu tarjeta.';
++    else if (!num.startsWith('4')) errores.numero = 'Solo aceptamos tarjetas Visa.';
++    if (String(datos.titular || '').trim().length < 3) errores.titular = 'Escribe el nombre como figura en la tarjeta.';
++    if (!vencimientoValido(datos.vence, ahora)) errores.vence = 'Fecha de vencimiento no válida.';
++    if (soloDigitos(datos.cvv).length !== 3) errores.cvv = 'El código de seguridad tiene 3 dígitos.';
++    if (!Object.keys(errores).length && num === TARJETA_RECHAZADA) {
++      return { ok: false, errores, rechazo: 'Tu banco rechazó el pago (fondos insuficientes). Prueba con otra tarjeta o con Yape/Plin.' };
++    }
++  } else if (medio === 'yape' || medio === 'plin') {
++    const cel = soloDigitos(datos.celular);
++    if (cel.length !== 9 || !cel.startsWith('9')) errores.celular = 'Ingresa un celular peruano de 9 dígitos (empieza con 9).';
++    if (medio === 'yape') {
++      if (soloDigitos(datos.codigo).length !== 6) errores.codigo = 'El código de aprobación tiene 6 dígitos.';
++      else if (!Object.keys(errores).length && soloDigitos(datos.codigo) === CODIGO_YAPE_RECHAZADO) {
++        return { ok: false, errores, rechazo: 'El código de aprobación es incorrecto o venció. Genera uno nuevo en tu app.' };
++      }
++    }
++  } else {
++    errores.medio = 'Elige un medio de pago.';
++  }
++  return { ok: Object.keys(errores).length === 0, errores };
++}
++
++export const etiquetaMedioPago = (id) => (METODOS_PAGO_RESERVA.find((m) => m.id === id) || {}).etiqueta || String(id || '').toUpperCase();
+diff --git a/web/src/features/cliente/mock.js b/web/src/features/cliente/mock.js
+index 6708897..bcb2f4c 100644
+--- a/web/src/features/cliente/mock.js
++++ b/web/src/features/cliente/mock.js
+@@ -305,6 +305,25 @@ export const mock = {
+       });
+     },
+ 
++    // pagar_reserva_sauna(p_id_cita, p_medio): el cliente paga su propia reserva (simulado, sin pasarela).
++    pagar_reserva_sauna(a, ctx) {
++      const cli = clienteActual(ctx);
++      if (!cli) return soloClientes();
++      const medio = String(a.p_medio || 'visa').toLowerCase().trim();
++      if (!['visa', 'yape', 'plin'].includes(medio)) return err('Medio de pago no válido');
++      const cita = ctx.db.citas.find((c) => c.id_cita === a.p_id_cita && c.id_cliente === cli.id_cliente && c.servicio === 'sauna');
++      if (!cita) return err('La reserva no existe.');
++      if (cita.estado_asistencia !== 'pendiente') return err('La reserva ya no está vigente.');
++      if ((cita.estado_pago || 'pagada') === 'pagada') return err('Esta reserva ya está pagada.');
++      const monto = cita.tarifa_aplicada || 15;
++      const pago = { id_pago: ctx.nuevoId('pg'), id_cliente: cli.id_cliente, id_cita: cita.id_cita, monto, medio,
++        concepto: 'sauna', estado: 'registrado', pagado_en: new Date().toISOString() };
++      ctx.db.pagos.push(pago);
++      cita.estado_pago = 'pagada'; cita.tarifa_aplicada = monto;
++      if (ctx.registrar) ctx.registrar('pagos', 'pago', pago.id_pago, cli.id_cliente, { concepto: 'sauna', monto, medio, id_cita: cita.id_cita, origen: 'cliente_en_linea' });
++      return ok({ ok: true, monto, medio, pagado_en: pago.pagado_en, operacion: `OP-${String(pago.id_pago).replace(/[^0-9a-z]/gi, '').slice(-8).toUpperCase().padStart(8, '0')}` });
++    },
++
+     mis_reservas(a, ctx) {
+       const cli = clienteActual(ctx);
+       if (!cli) return soloClientes();
+diff --git a/web/src/features/cliente/pago.css b/web/src/features/cliente/pago.css
+new file mode 100644
+index 0000000..398dadb
+--- /dev/null
++++ b/web/src/features/cliente/pago.css
+@@ -0,0 +1,57 @@
++/* Pago simulado de la reserva (ventana emergente). Usa los tokens de styles.css. */
++.pago-fondo { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: rgba(15, 30, 45, .55); backdrop-filter: blur(3px); overflow-y: auto; }
++.pago-modal { width: 100%; max-width: 460px; max-height: calc(100vh - 32px); overflow-y: auto; padding: 24px; border-radius: 22px; background: #fff; box-shadow: 0 24px 60px rgba(10, 30, 50, .35); animation: pago-entra .22s ease-out; }
++@keyframes pago-entra { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: none; } }
++.pago-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
++.pago-cab h2 { margin: 0; font: 600 1.25rem var(--f-titulo); }
++.pago-cab p { margin: 4px 0 0; color: var(--suave); font-size: .88rem; }
++.pago-monto { font: 600 1.6rem var(--f-titulo); color: var(--azul-fuerte); white-space: nowrap; }
++
++.pago-metodos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 18px; }
++.pago-metodo { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 8px; border: 1.5px solid var(--borde); border-radius: 14px; background: #fff; color: var(--neutro); font-weight: 600; }
++.pago-metodo i { width: 10px; height: 10px; border-radius: 50%; background: var(--suave); }
++.pago-metodo.visa i { background: #1A4FA0; } .pago-metodo.yape i { background: #7B2D8E; } .pago-metodo.plin i { background: #0FB5C8; }
++.pago-metodo:hover:not(:disabled) { background: var(--gris-suave); }
++.pago-metodo[aria-selected="true"] { border-color: var(--azul-fuerte); background: var(--azul-suave); color: var(--azul-fuerte); box-shadow: 0 0 0 3px rgba(10, 106, 148, .12); }
++
++.pago-form { display: grid; gap: 12px; }
++.pago-ayuda { margin: 0; color: var(--suave); font-size: .9rem; line-height: 1.45; }
++.pago-campo { display: grid; gap: 5px; }
++.pago-campo label { font-size: .82rem; font-weight: 600; color: #3F4A55; }
++.pago-campo input { min-height: 46px; font-size: 1rem; letter-spacing: .02em; }
++.pago-campo.con-error input { border-color: var(--error); background: var(--error-suave); }
++.pago-error { color: var(--error); font-size: .8rem; }
++.pago-fila { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
++.pago-rechazo { margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--error-suave); color: #8A1C12; font-size: .9rem; }
++.pago-relleno { justify-self: start; min-height: 0; padding: 4px 10px; border: 0; background: transparent; color: var(--azul-fuerte); font-size: .82rem; text-decoration: underline; }
++
++.pago-tarjeta { position: relative; display: grid; gap: 14px; padding: 18px 20px; border-radius: 16px; color: #fff; overflow: hidden;
++  background: linear-gradient(135deg, #0A3F63 0%, #1A7FB0 60%, #29A9E1 100%); box-shadow: 0 10px 24px rgba(10, 80, 120, .28); }
++.pago-tarjeta::after { content: ""; position: absolute; right: -40px; top: -40px; width: 140px; height: 140px; border-radius: 50%; background: rgba(255, 255, 255, .1); }
++.pago-chip { width: 38px; height: 28px; border-radius: 6px; background: linear-gradient(135deg, #F4D58A, #C9A24A); }
++.pago-tarjeta b { font: 600 1.15rem/1 var(--f-titulo); letter-spacing: .12em; font-variant-numeric: tabular-nums; }
++.pago-tarjeta div { display: flex; justify-content: space-between; gap: 12px; font-size: .74rem; letter-spacing: .08em; opacity: .9; }
++.pago-tarjeta em { position: absolute; right: 18px; bottom: 14px; font: italic 800 1.1rem var(--f-titulo); letter-spacing: .04em; }
++
++.pago-pagar { width: 100%; min-height: 50px; border: 0; border-radius: 14px; background: var(--azul-fuerte); color: #fff; font-size: 1rem; font-weight: 700; }
++.pago-pagar:hover { background: #085A80; }
++.pago-despues { min-height: 0; padding: 6px; border: 0; background: transparent; color: var(--suave); font-size: .88rem; text-decoration: underline; }
++.pago-pie { margin: 0; text-align: center; color: var(--suave); font-size: .78rem; }
++
++.pago-proceso { display: grid; justify-items: center; gap: 10px; padding: 36px 8px; text-align: center; }
++.pago-proceso small { color: var(--suave); }
++.pago-spinner { width: 42px; height: 42px; border: 4px solid var(--azul-suave); border-top-color: var(--azul-fuerte); border-radius: 50%; animation: pago-gira .8s linear infinite; }
++@keyframes pago-gira { to { transform: rotate(360deg); } }
++
++.pago-ok { display: grid; gap: 12px; text-align: center; }
++.pago-ok h2 { margin: 0; font: 600 1.4rem var(--f-titulo); }
++.pago-ok p { margin: 0; color: var(--suave); }
++.pago-check { justify-self: center; width: 60px; height: 60px; display: grid; place-items: center; border-radius: 50%; background: var(--verde); color: #fff; font-size: 1.9rem; font-weight: 700; animation: pago-pop .35s ease-out; }
++@keyframes pago-pop { 0% { transform: scale(.4); opacity: 0; } 70% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
++.pago-recibo { margin: 6px 0 4px; padding: 6px 16px; text-align: left; border: 1px dashed var(--borde); border-radius: 14px; background: var(--gris-suave); }
++.pago-recibo div { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--borde); font-size: .9rem; }
++.pago-recibo div:last-child { border-bottom: 0; }
++.pago-recibo dt { color: var(--suave); } .pago-recibo dd { margin: 0; font-weight: 600; text-align: right; }
++
++@media (max-width: 480px) { .pago-modal { padding: 18px; border-radius: 18px; } .pago-fila { grid-template-columns: 1fr; } }
++@media (prefers-reduced-motion: reduce) { .pago-modal, .pago-check, .pago-spinner { animation: none; } }
+diff --git a/web/src/features/recepcion/mock.js b/web/src/features/recepcion/mock.js
+index 690fbd1..635c152 100644
+--- a/web/src/features/recepcion/mock.js
++++ b/web/src/features/recepcion/mock.js
+@@ -294,8 +294,8 @@ export const mock = {
+         .map((c) => ({ id_cita: c.id_cita, id_cliente: c.id_cliente, nombre: ctx.db.clientes.find((x) => x.id_cliente === c.id_cliente).nombre, fecha_hora_cita: c.fecha_hora_cita }));
+       return { data: {
+         cobros: {
+-          efectivo: suma((p) => p.medio === 'efectivo'), yape: suma((p) => p.medio === 'yape'), plin: suma((p) => p.medio === 'plin'),
+-          n_efectivo: cuenta((p) => p.medio === 'efectivo'), n_yape: cuenta((p) => p.medio === 'yape'), n_plin: cuenta((p) => p.medio === 'plin'),
++          efectivo: suma((p) => p.medio === 'efectivo'), yape: suma((p) => p.medio === 'yape'), plin: suma((p) => p.medio === 'plin'), visa: suma((p) => p.medio === 'visa'),
++          n_efectivo: cuenta((p) => p.medio === 'efectivo'), n_yape: cuenta((p) => p.medio === 'yape'), n_plin: cuenta((p) => p.medio === 'plin'), n_visa: cuenta((p) => p.medio === 'visa'),
+           membresia: suma((p) => p.concepto === 'membresia'), pase_dia: suma((p) => p.concepto === 'pase_dia'), sauna: suma((p) => p.concepto === 'sauna'),
+           anulados: ctx.db.pagos.filter((p) => mismoDia(p.pagado_en) && p.estado === 'anulado').length
+         },
+diff --git a/web/src/styles.css b/web/src/styles.css
+index 6d4a3cc..86f630f 100644
+--- a/web/src/styles.css
++++ b/web/src/styles.css
+@@ -72,7 +72,7 @@ a { color: var(--azul-fuerte); }
+ .avatar.verde { background: var(--verde-suave); color: #166534; }
+ .avatar.gris { background: var(--gris-suave); color: #3F4A55; }
+ 
+-.pagina { width: 100%; max-width: 1180px; padding: 28px 28px 48px; }
++.pagina { width: 100%; max-width: 1680px; margin: 0 auto; padding: 28px clamp(16px, 2.4vw, 40px) 48px; }
+ .pag-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+ .tarjeta { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: var(--radio);
+   padding: 22px; margin-bottom: 20px; box-shadow: var(--sombra); }
+diff --git a/web/tests/logica.test.js b/web/tests/logica.test.js
+index 729b8a3..68d4ad6 100644
+--- a/web/tests/logica.test.js
++++ b/web/tests/logica.test.js
+@@ -145,3 +145,25 @@ test('agenda: agrupa por día, ignora canceladas y cuenta por día', async () =>
+   assert.equal(claveDia(f(5, 23)), '2026-11-05');
+   assert.deepEqual(diasDesde('2026-11-29', 3), ['2026-11-29', '2026-11-30', '2026-12-01']);
+ });
++
++test('pago simulado: Luhn, formatos y validación de cada medio', async () => {
++  const L = await import('../src/features/cliente/logica.js');
++  assert.equal(L.luhnValido('4111 1111 1111 1111'), true);
++  assert.equal(L.luhnValido('4111 1111 1111 1112'), false);
++  assert.equal(L.formatearTarjeta('4111111111111111999'), '4111 1111 1111 1111');
++  assert.equal(L.formatearVencimiento('1228'), '12/28');
++  const hoy = new Date(2026, 10, 26);
++  assert.equal(L.vencimientoValido('11/26', hoy), true);
++  assert.equal(L.vencimientoValido('10/26', hoy), false);
++  assert.equal(L.vencimientoValido('13/30', hoy), false);
++  const bien = { numero: '4111 1111 1111 1111', titular: 'Cristian Candela', vence: '12/29', cvv: '123' };
++  assert.equal(L.evaluarPago('visa', bien, hoy).ok, true);
++  assert.ok(L.evaluarPago('visa', { ...bien, cvv: '12' }, hoy).errores.cvv);
++  assert.ok(L.evaluarPago('visa', { ...bien, numero: '5555 5555 5555 4444' }, hoy).errores.numero, 'solo Visa');
++  const rech = L.evaluarPago('visa', { ...bien, numero: '4000 0000 0000 0002' }, hoy);
++  assert.equal(rech.ok, false); assert.ok(rech.rechazo);
++  assert.equal(L.evaluarPago('yape', { celular: '987654321', codigo: '123456' }, hoy).ok, true);
++  assert.ok(L.evaluarPago('yape', { celular: '787654321', codigo: '123456' }, hoy).errores.celular);
++  assert.ok(L.evaluarPago('yape', { celular: '987654321', codigo: '000000' }, hoy).rechazo);
++  assert.equal(L.evaluarPago('plin', { celular: '912345678' }, hoy).ok, true);
++});
+diff --git a/web/tests/mocks.test.js b/web/tests/mocks.test.js
+index 14dd772..9889151 100644
+--- a/web/tests/mocks.test.js
++++ b/web/tests/mocks.test.js
+@@ -138,3 +138,25 @@ test('sauna reservado por el cliente: nace pendiente de pago y recepción lo cob
+   assert.ok(db.pagos.some((p) => p.id_cita === id && p.concepto === 'sauna' && p.medio === 'yape' && p.monto === cita.tarifa_aplicada));
+   assert.ok(llamar('u1', 'cobrar_cita_sauna', { p_id_cita: id, p_medio: 'efectivo' }).error, 'no se cobra dos veces');
+ });
++
++test('pago en línea del cliente: queda registrado, suma en caja y en ingresos del admin', () => {
++  const { llamar, db } = entorno();
++  const id = llamar('u3', 'reservar_sauna', { p_sede: 'Túpac Amaru', p_fecha_hora: manana(15) }).data;
++  assert.ok(llamar('u1', 'pagar_reserva_sauna', { p_id_cita: id, p_medio: 'visa' }).error, 'solo el cliente dueño paga en línea');
++  assert.ok(llamar('u3', 'pagar_reserva_sauna', { p_id_cita: id, p_medio: 'efectivo' }).error, 'en línea solo Visa, Yape o Plin');
++  const antes = llamar('u2', 'ingresos_resumen', { p_dias: 30 });
++  assert.ok(llamar('u1', 'ingresos_resumen', { p_dias: 30 }).error, 'ingresos es solo del administrador');
++  const r = llamar('u3', 'pagar_reserva_sauna', { p_id_cita: id, p_medio: 'visa' });
++  assert.equal(r.data.ok, true);
++  assert.match(r.data.operacion, /^OP-[0-9A-Z]{8}$/);
++  const cita = db.citas.find((c) => c.id_cita === id);
++  assert.equal(cita.estado_pago, 'pagada');
++  assert.ok(llamar('u3', 'pagar_reserva_sauna', { p_id_cita: id, p_medio: 'visa' }).error, 'no se paga dos veces');
++  const despues = llamar('u2', 'ingresos_resumen', { p_dias: 30 });
++  assert.equal(despues.data.total, antes.data.total + cita.tarifa_aplicada);
++  assert.equal(despues.data.por_medio.visa, antes.data.por_medio.visa + cita.tarifa_aplicada);
++  assert.equal(despues.data.por_concepto.sauna, antes.data.por_concepto.sauna + cita.tarifa_aplicada);
++  assert.equal(despues.data.por_cobrar.n, antes.data.por_cobrar.n - 1);
++  const caja = llamar('u1', 'resumen_completo', { p_sede: 'Túpac Amaru' }).data.cobros;
++  assert.ok(caja.visa >= cita.tarifa_aplicada, 'la caja del día incluye Visa');
++});

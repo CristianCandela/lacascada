@@ -145,3 +145,25 @@ test('agenda: agrupa por día, ignora canceladas y cuenta por día', async () =>
   assert.equal(claveDia(f(5, 23)), '2026-11-05');
   assert.deepEqual(diasDesde('2026-11-29', 3), ['2026-11-29', '2026-11-30', '2026-12-01']);
 });
+
+test('pago simulado: Luhn, formatos y validación de cada medio', async () => {
+  const L = await import('../src/features/cliente/logica.js');
+  assert.equal(L.luhnValido('4111 1111 1111 1111'), true);
+  assert.equal(L.luhnValido('4111 1111 1111 1112'), false);
+  assert.equal(L.formatearTarjeta('4111111111111111999'), '4111 1111 1111 1111');
+  assert.equal(L.formatearVencimiento('1228'), '12/28');
+  const hoy = new Date(2026, 10, 26);
+  assert.equal(L.vencimientoValido('11/26', hoy), true);
+  assert.equal(L.vencimientoValido('10/26', hoy), false);
+  assert.equal(L.vencimientoValido('13/30', hoy), false);
+  const bien = { numero: '4111 1111 1111 1111', titular: 'Cristian Candela', vence: '12/29', cvv: '123' };
+  assert.equal(L.evaluarPago('visa', bien, hoy).ok, true);
+  assert.ok(L.evaluarPago('visa', { ...bien, cvv: '12' }, hoy).errores.cvv);
+  assert.ok(L.evaluarPago('visa', { ...bien, numero: '5555 5555 5555 4444' }, hoy).errores.numero, 'solo Visa');
+  const rech = L.evaluarPago('visa', { ...bien, numero: '4000 0000 0000 0002' }, hoy);
+  assert.equal(rech.ok, false); assert.ok(rech.rechazo);
+  assert.equal(L.evaluarPago('yape', { celular: '987654321', codigo: '123456' }, hoy).ok, true);
+  assert.ok(L.evaluarPago('yape', { celular: '787654321', codigo: '123456' }, hoy).errores.celular);
+  assert.ok(L.evaluarPago('yape', { celular: '987654321', codigo: '000000' }, hoy).rechazo);
+  assert.equal(L.evaluarPago('plin', { celular: '912345678' }, hoy).ok, true);
+});

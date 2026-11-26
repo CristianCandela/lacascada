@@ -138,3 +138,25 @@ test('sauna reservado por el cliente: nace pendiente de pago y recepción lo cob
   assert.ok(db.pagos.some((p) => p.id_cita === id && p.concepto === 'sauna' && p.medio === 'yape' && p.monto === cita.tarifa_aplicada));
   assert.ok(llamar('u1', 'cobrar_cita_sauna', { p_id_cita: id, p_medio: 'efectivo' }).error, 'no se cobra dos veces');
 });
+
+test('pago en línea del cliente: queda registrado, suma en caja y en ingresos del admin', () => {
+  const { llamar, db } = entorno();
+  const id = llamar('u3', 'reservar_sauna', { p_sede: 'Túpac Amaru', p_fecha_hora: manana(15) }).data;
+  assert.ok(llamar('u1', 'pagar_reserva_sauna', { p_id_cita: id, p_medio: 'visa' }).error, 'solo el cliente dueño paga en línea');
+  assert.ok(llamar('u3', 'pagar_reserva_sauna', { p_id_cita: id, p_medio: 'efectivo' }).error, 'en línea solo Visa, Yape o Plin');
+  const antes = llamar('u2', 'ingresos_resumen', { p_dias: 30 });
+  assert.ok(llamar('u1', 'ingresos_resumen', { p_dias: 30 }).error, 'ingresos es solo del administrador');
+  const r = llamar('u3', 'pagar_reserva_sauna', { p_id_cita: id, p_medio: 'visa' });
+  assert.equal(r.data.ok, true);
+  assert.match(r.data.operacion, /^OP-[0-9A-Z]{8}$/);
+  const cita = db.citas.find((c) => c.id_cita === id);
+  assert.equal(cita.estado_pago, 'pagada');
+  assert.ok(llamar('u3', 'pagar_reserva_sauna', { p_id_cita: id, p_medio: 'visa' }).error, 'no se paga dos veces');
+  const despues = llamar('u2', 'ingresos_resumen', { p_dias: 30 });
+  assert.equal(despues.data.total, antes.data.total + cita.tarifa_aplicada);
+  assert.equal(despues.data.por_medio.visa, antes.data.por_medio.visa + cita.tarifa_aplicada);
+  assert.equal(despues.data.por_concepto.sauna, antes.data.por_concepto.sauna + cita.tarifa_aplicada);
+  assert.equal(despues.data.por_cobrar.n, antes.data.por_cobrar.n - 1);
+  const caja = llamar('u1', 'resumen_completo', { p_sede: 'Túpac Amaru' }).data.cobros;
+  assert.ok(caja.visa >= cita.tarifa_aplicada, 'la caja del día incluye Visa');
+});

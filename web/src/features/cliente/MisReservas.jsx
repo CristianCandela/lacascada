@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { etiquetaEstadoReserva, formatearFechaPe, claseBadgeEstado } from './logica';
+import PagoSimulado from './PagoSimulado';
 import './estilos.css';
 
 export default function MisReservas({ perfil, onAviso }) {
@@ -10,14 +11,18 @@ export default function MisReservas({ perfil, onAviso }) {
   const [fechaHora, setFechaHora] = useState('');
   const [cupos, setCupos] = useState(null);
   const [cargando, setCargando] = useState(false);
+  const [pagando, setPagando] = useState(null); // reserva que se está pagando (ventana de pago)
 
   const cargarReservas = useCallback(async () => {
     try {
       const { data, error } = await supabase.rpc('mis_reservas');
       if (error) throw error;
-      setReservas(Array.isArray(data) ? data : []);
+      const lista = Array.isArray(data) ? data : [];
+      setReservas(lista);
+      return lista;
     } catch (err) {
       if (onAviso) onAviso(err.message || 'No se pudieron cargar tus reservas.', 'error');
+      return [];
     }
   }, [onAviso]);
 
@@ -95,7 +100,10 @@ export default function MisReservas({ perfil, onAviso }) {
         if (onAviso) onAviso('¡Reserva de sauna agendada con éxito!', 'exito');
         setFechaHora('');
         setCupos(null);
-        await cargarReservas();
+        const lista = await cargarReservas();
+        // El pago se ofrece de inmediato; si el cliente lo cierra, la reserva queda «por pagar».
+        const nueva = lista.find((r) => r.id_cita === data);
+        if (nueva && nueva.estado_pago === 'pendiente') setPagando(nueva);
       } else {
         if (onAviso) onAviso('No se pudo registrar la reserva.', 'error');
       }
@@ -187,7 +195,7 @@ export default function MisReservas({ perfil, onAviso }) {
                   <div>{formatearFechaPe(reserva.fecha_hora_cita || reserva.fecha_hora)}</div>
                   {reserva.estado_pago === 'pendiente' && (reserva.estado_asistencia === 'pendiente') && (
                     <div className="cli-pago-nota" data-pago="pendiente">
-                      Por pagar{reserva.tarifa_aplicada != null ? `: S/ ${Number(reserva.tarifa_aplicada).toFixed(2)}` : ''} · se paga en recepción al llegar (efectivo, Yape o Plin)
+                      Por pagar{reserva.tarifa_aplicada != null ? `: S/ ${Number(reserva.tarifa_aplicada).toFixed(2)}` : ''} · paga ahora en línea o en recepción al llegar
                     </div>
                   )}
                   {reserva.estado_pago === 'pagada' && reserva.tarifa_aplicada != null && reserva.estado_asistencia !== 'cancelo' && (
@@ -198,6 +206,11 @@ export default function MisReservas({ perfil, onAviso }) {
                   <span className={`cli-badge ${claseBadgeEstado(reserva.estado || reserva.estado_asistencia)}`}>
                     {etiquetaEstadoReserva(reserva.estado || reserva.estado_asistencia)}
                   </span>
+                  {reserva.estado_pago === 'pendiente' && reserva.estado_asistencia === 'pendiente' && (
+                    <button type="button" data-accion="pagar-reserva" className="cli-btn-primario cli-btn-pagar" disabled={cargando} onClick={() => setPagando(reserva)}>
+                      Pagar ahora
+                    </button>
+                  )}
                   {(reserva.estado === 'pendiente' || reserva.estado_asistencia === 'pendiente') && (
                     <button
                       onClick={() => handleCancelar(reserva.id_cita)}
@@ -215,6 +228,14 @@ export default function MisReservas({ perfil, onAviso }) {
           <p className="ayuda">No tienes reservas registradas.</p>
         )}
       </div>
+
+      {pagando && (
+        <PagoSimulado
+          reserva={pagando}
+          onCerrar={() => { setPagando(null); cargarReservas(); }}
+          onPagado={() => { if (onAviso) onAviso('Pago registrado. ¡Gracias!', 'exito'); }}
+        />
+      )}
     </div>
   );
 }

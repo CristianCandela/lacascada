@@ -305,6 +305,25 @@ export const mock = {
       });
     },
 
+    // pagar_reserva_sauna(p_id_cita, p_medio): el cliente paga su propia reserva (simulado, sin pasarela).
+    pagar_reserva_sauna(a, ctx) {
+      const cli = clienteActual(ctx);
+      if (!cli) return soloClientes();
+      const medio = String(a.p_medio || 'visa').toLowerCase().trim();
+      if (!['visa', 'yape', 'plin'].includes(medio)) return err('Medio de pago no válido');
+      const cita = ctx.db.citas.find((c) => c.id_cita === a.p_id_cita && c.id_cliente === cli.id_cliente && c.servicio === 'sauna');
+      if (!cita) return err('La reserva no existe.');
+      if (cita.estado_asistencia !== 'pendiente') return err('La reserva ya no está vigente.');
+      if ((cita.estado_pago || 'pagada') === 'pagada') return err('Esta reserva ya está pagada.');
+      const monto = cita.tarifa_aplicada || 15;
+      const pago = { id_pago: ctx.nuevoId('pg'), id_cliente: cli.id_cliente, id_cita: cita.id_cita, monto, medio,
+        concepto: 'sauna', estado: 'registrado', pagado_en: new Date().toISOString() };
+      ctx.db.pagos.push(pago);
+      cita.estado_pago = 'pagada'; cita.tarifa_aplicada = monto;
+      if (ctx.registrar) ctx.registrar('pagos', 'pago', pago.id_pago, cli.id_cliente, { concepto: 'sauna', monto, medio, id_cita: cita.id_cita, origen: 'cliente_en_linea' });
+      return ok({ ok: true, monto, medio, pagado_en: pago.pagado_en, operacion: `OP-${String(pago.id_pago).replace(/[^0-9a-z]/gi, '').slice(-8).toUpperCase().padStart(8, '0')}` });
+    },
+
     mis_reservas(a, ctx) {
       const cli = clienteActual(ctx);
       if (!cli) return soloClientes();

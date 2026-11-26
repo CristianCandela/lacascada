@@ -1,0 +1,19 @@
+.ing .ing-seg { display: inline-flex; padding: 4px; gap: 2px; border-radius: 14px; background: var(--gris-suave); }
+.ing .ing-seg button { min-height: 38px; padding: 7px 16px; background: transparent; color: var(--suave); border-radius: 10px; font-weight: 600; }
+.ing .ing-seg button[aria-pressed="true"] { background: #fff; color: var(--azul-fuerte); box-shadow: 0 1px 3px rgba(20, 40, 60, .14); }
+.ing .ing-dos { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px; }
+.ing .ing-dos .tarjeta { margin-bottom: 0; }
+.ing .ing-fila { margin-top: 16px; }
+.ing .ing-fila-cab { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 7px; font-size: .9rem; }
+.ing .ing-fila-cab i { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; }
+.ing .ing-fila-cab span { color: var(--suave); font-variant-numeric: tabular-nums; }
+.ing .ing-pista { height: 10px; border-radius: 99px; background: var(--gris-suave); overflow: hidden; }
+.ing .ing-pista span { display: block; height: 100%; min-width: 0; border-radius: 99px; background: var(--azul-fuerte); transition: width .4s ease; }
+.ing .ing-barras { display: flex; align-items: stretch; gap: 4px; height: 240px; margin-top: 14px; padding-top: 6px; border-bottom: 1px solid var(--borde); }
+.ing .ing-col { position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+.ing .ing-col i { display: block; width: 100%; max-width: 34px; border-radius: 8px 8px 0 0; background: linear-gradient(180deg, #29A9E1, #0A6A94); }
+.ing .ing-col:hover i { filter: brightness(1.12); }
+.ing .ing-valor { margin-bottom: 4px; font-size: .72rem; color: var(--suave); font-variant-numeric: tabular-nums; }
+.ing .ing-col small { position: absolute; top: 100%; margin-top: 6px; white-space: nowrap; font-size: .72rem; color: var(--suave); }
+.ing .tarjeta:last-child { padding-bottom: 44px; }
+@media (prefers-reduced-motion: reduce) { .ing .ing-pista span { transition: none; } }

@@ -156,3 +156,76 @@ export function formatearFechaPe(fechaIso) {
   }
   return formatearFecha(fechaIso);
 }
+// ---------- Pago simulado de la reserva (Visa / Yape / Plin) ----------
+// Nada de esto es una pasarela real: valida el formulario como lo haría una y deja que el servidor registre el pago.
+export const METODOS_PAGO_RESERVA = [
+  { id: 'visa', etiqueta: 'Visa' },
+  { id: 'yape', etiqueta: 'Yape' },
+  { id: 'plin', etiqueta: 'Plin' }
+];
+export const TARJETA_DE_PRUEBA = '4111 1111 1111 1111';
+const TARJETA_RECHAZADA = '4000000000000002'; // simula «fondos insuficientes»
+const CODIGO_YAPE_RECHAZADO = '000000';       // simula «código incorrecto o vencido»
+
+export const soloDigitos = (s, max = 99) => String(s || '').replace(/\D/g, '').slice(0, max);
+
+export function formatearTarjeta(valor) {
+  return soloDigitos(valor, 16).replace(/(\d{4})(?=\d)/g, '$1 ');
+}
+
+export function formatearVencimiento(valor) {
+  const d = soloDigitos(valor, 4);
+  return d.length > 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
+}
+
+// Algoritmo de Luhn: el dígito de control que usan todas las tarjetas.
+export function luhnValido(numero) {
+  const d = soloDigitos(numero);
+  if (d.length < 13) return false;
+  let suma = 0;
+  for (let i = 0; i < d.length; i += 1) {
+    let n = Number(d[d.length - 1 - i]);
+    if (i % 2 === 1) { n *= 2; if (n > 9) n -= 9; }
+    suma += n;
+  }
+  return suma % 10 === 0;
+}
+
+export function vencimientoValido(mmaa, ahora = new Date()) {
+  const m = /^(\d{2})\/(\d{2})$/.exec(mmaa || '');
+  if (!m) return false;
+  const mes = Number(m[1]);
+  const anio = 2000 + Number(m[2]);
+  if (mes < 1 || mes > 12) return false;
+  return anio > ahora.getFullYear() || (anio === ahora.getFullYear() && mes >= ahora.getMonth() + 1);
+}
+
+// Devuelve { ok, errores: { campo: mensaje }, rechazo?: motivo }. «rechazo» simula la respuesta del banco.
+export function evaluarPago(medio, datos = {}, ahora = new Date()) {
+  const errores = {};
+  if (medio === 'visa') {
+    const num = soloDigitos(datos.numero);
+    if (num.length !== 16 || !luhnValido(num)) errores.numero = 'Revisa el número de tu tarjeta.';
+    else if (!num.startsWith('4')) errores.numero = 'Solo aceptamos tarjetas Visa.';
+    if (String(datos.titular || '').trim().length < 3) errores.titular = 'Escribe el nombre como figura en la tarjeta.';
+    if (!vencimientoValido(datos.vence, ahora)) errores.vence = 'Fecha de vencimiento no válida.';
+    if (soloDigitos(datos.cvv).length !== 3) errores.cvv = 'El código de seguridad tiene 3 dígitos.';
+    if (!Object.keys(errores).length && num === TARJETA_RECHAZADA) {
+      return { ok: false, errores, rechazo: 'Tu banco rechazó el pago (fondos insuficientes). Prueba con otra tarjeta o con Yape/Plin.' };
+    }
+  } else if (medio === 'yape' || medio === 'plin') {
+    const cel = soloDigitos(datos.celular);
+    if (cel.length !== 9 || !cel.startsWith('9')) errores.celular = 'Ingresa un celular peruano de 9 dígitos (empieza con 9).';
+    if (medio === 'yape') {
+      if (soloDigitos(datos.codigo).length !== 6) errores.codigo = 'El código de aprobación tiene 6 dígitos.';
+      else if (!Object.keys(errores).length && soloDigitos(datos.codigo) === CODIGO_YAPE_RECHAZADO) {
+        return { ok: false, errores, rechazo: 'El código de aprobación es incorrecto o venció. Genera uno nuevo en tu app.' };
+      }
+    }
+  } else {
+    errores.medio = 'Elige un medio de pago.';
+  }
+  return { ok: Object.keys(errores).length === 0, errores };
+}
+
+export const etiquetaMedioPago = (id) => (METODOS_PAGO_RESERVA.find((m) => m.id === id) || {}).etiqueta || String(id || '').toUpperCase();

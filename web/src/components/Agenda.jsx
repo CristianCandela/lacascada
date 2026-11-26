@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase, mensajeError } from '../lib/supabase';
 import {
   agruparPorDia, citasVigentes, claveDia, contarPorDia, diasDesde, hoyLocal,
@@ -31,6 +31,7 @@ function etiquetaDia(dia) {
 
 // Cita de sauna con el pago pendiente (se cobra en recepción).
 const porCobrar = (f) => f.servicio === 'sauna' && f.estado_pago === 'pendiente' && f.estado_asistencia !== 'cancelo';
+const pagadaEnLinea = (f) => f.servicio === 'sauna' && f.origen === 'cliente' && f.estado_pago === 'pagada' && f.tarifa_aplicada != null && f.estado_asistencia !== 'cancelo';
 const textoCobro = (f) => `Por cobrar${f.tarifa_aplicada != null ? ` · S/ ${Number(f.tarifa_aplicada).toFixed(2)}` : ''}`;
 
 function Resumen({ icono, tono, valor, texto }) {
@@ -109,6 +110,14 @@ export default function Agenda({ perfil, onAviso }) {
   }, [dia, onAviso, cargarProximas]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  // Refresco automático: las reservas y pagos que entran en línea aparecen solos, sin pulsar «Actualizar».
+  const cargarRef = useRef(cargar);
+  cargarRef.current = cargar;
+  useEffect(() => {
+    const t = setInterval(() => { if (!document.hidden) cargarRef.current(); }, 30000);
+    return () => clearInterval(t);
+  }, []);
 
   // Reloj para la cola de recordatorios: se actualiza cada minuto.
   useEffect(() => {
@@ -394,7 +403,7 @@ export default function Agenda({ perfil, onAviso }) {
                               )}
                             </div>
                           </td>
-                          <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span>{porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}</td>
+                          <td data-label="Estado"><span className={`etq ${f.estado_asistencia}`}>{ETIQUETAS[f.estado_asistencia]}</span>{porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}{pagadaEnLinea(f) && <span className="etq asistio por-cobrar" data-pago="pagada">Pagado · S/ {Number(f.tarifa_aplicada).toFixed(2)}</span>}</td>
                           <td data-label="Acción" className="acciones">
                             {f.estado_asistencia === 'pendiente' ? (
                               <>
@@ -463,6 +472,7 @@ export default function Agenda({ perfil, onAviso }) {
                               <small>Sede {f.sede}</small>
                               {f.origen === 'cliente' && <span className="etq online">Reservó en línea</span>}
                               {porCobrar(f) && <span className="etq recordar por-cobrar" data-pago="pendiente">{textoCobro(f)}</span>}
+                              {pagadaEnLinea(f) && <span className="etq asistio" data-pago="pagada">Pagado · S/ {Number(f.tarifa_aplicada).toFixed(2)}</span>}
                               {f.confirmada_en && <span className="etq asistio">Confirmó</span>}
                               {!f.confirmada_en && f.recordatorio_enviado_en && <span className="etq">Recordado</span>}
                               {altoRiesgo(f, riesgoProx) && (
