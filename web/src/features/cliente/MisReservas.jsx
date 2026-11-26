@@ -151,107 +151,135 @@ export default function MisReservas({ perfil, onAviso }) {
 
   return (
     <div className="cli-contenedor">
-      <div className="pag-cab">
+      <div className="pag-cab cli-pag-cab">
         <div>
           <h1>Reservas de Sauna</h1>
           <p className="ayuda">Agenda y administra tus turnos de sauna en nuestras sedes.</p>
         </div>
       </div>
 
-      <div className="tarjeta">
-        <h2>Nueva Reserva</h2>
-        <form onSubmit={handleReservar} className="cli-form-reserva">
-          <label className="cli-label">Sede:</label>
-          <select value={sede} onChange={(e) => setSede(e.target.value)} className="cli-input">
-            <option value="Túpac Amaru">Sede Túpac Amaru (Av. Túpac Amaru 6912)</option>
-            <option value="Santa Rosa">Sede Santa Rosa (Av. Túpac Amaru 1857)</option>
-          </select>
+      <div className="cli-grid-2">
+        <div className="tarjeta">
+          <div className="cli-membresia-cab">
+            <h2 className="cli-membresia-titulo">Nueva Reserva</h2>
+            {tieneAforo && (
+              <span className={`cli-badge ${turnoLleno ? 'cli-badge-cancelo' : 'cli-badge-asistio'}`}>
+                {turnoLleno ? 'Sin cupos' : `${cupos.libres}/${cupos.capacidad} libres`}
+              </span>
+            )}
+          </div>
 
-          <label className="cli-label">Fecha y Hora:</label>
-          <input
-            type="datetime-local"
-            value={fechaHora}
-            onChange={(e) => setFechaHora(e.target.value)}
-            className="cli-input"
-          />
+          <form onSubmit={handleReservar} className="cli-form-reserva cli-modal-form">
+            <div>
+              <label className="cli-label" htmlFor="cli-reserva-sede">Sede:</label>
+              <select
+                id="cli-reserva-sede"
+                value={sede}
+                onChange={(e) => setSede(e.target.value)}
+                className="cli-input"
+                style={{ width: '100%' }}
+              >
+                <option value="Túpac Amaru">Sede Túpac Amaru (Av. Túpac Amaru 6912)</option>
+                <option value="Santa Rosa">Sede Santa Rosa (Av. Túpac Amaru 1857)</option>
+              </select>
+            </div>
 
-          {tieneAforo && (
-            <p className="ayuda" role="status">
-              {turnoLleno
-                ? 'Turno lleno (0 cupos disponibles).'
-                : `Cupos libres para sauna: ${cupos.libres} de ${cupos.capacidad}`}
-            </p>
+            <div>
+              <label className="cli-label" htmlFor="cli-reserva-fecha">Fecha y Hora:</label>
+              <input
+                id="cli-reserva-fecha"
+                type="datetime-local"
+                value={fechaHora}
+                onChange={(e) => setFechaHora(e.target.value)}
+                className="cli-input"
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            {tieneAforo && (
+              <p className="ayuda" role="status" style={{ margin: 0 }}>
+                {turnoLleno
+                  ? 'Turno lleno (0 cupos disponibles).'
+                  : `Cupos libres para sauna: ${cupos.libres} de ${cupos.capacidad}`}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={cargando || turnoLleno}
+              className="cli-btn-primario"
+            >
+              {cargando ? 'Agendando...' : turnoLleno ? 'Turno lleno' : 'Agendar Turno'}
+            </button>
+          </form>
+        </div>
+
+        <div className="tarjeta">
+          <div className="cli-membresia-cab">
+            <h2 className="cli-membresia-titulo">Mis Turnos Agendados</h2>
+            <span className="cli-badge cli-badge-neutro">{reservas.length}</span>
+          </div>
+
+          {reservas.length > 0 ? (
+            <ul className="cli-lista">
+              {reservas.map((reserva) => (
+                <li key={reserva.id_cita} className="cli-item-reserva">
+                  <div className="cli-reserva-meta">
+                    <span className="cli-reserva-titulo">
+                      {reserva.servicio
+                        ? reserva.servicio.charAt(0).toUpperCase() + reserva.servicio.slice(1)
+                        : 'Sauna'}{' '}
+                      — Sede {reserva.sede}
+                    </span>
+                    <span className="cli-reserva-sub">
+                      {formatearFechaPe(reserva.fecha_hora_cita || reserva.fecha_hora)}
+                    </span>
+                    {reserva.estado_pago === 'pendiente' && (reserva.estado_asistencia === 'pendiente') && (
+                      <div className="cli-pago-nota" data-pago="pendiente">
+                        Por pagar{reserva.tarifa_aplicada != null ? `: S/ ${Number(reserva.tarifa_aplicada).toFixed(2)}` : ''} · paga ahora en línea o en recepción al llegar
+                      </div>
+                    )}
+                    {reserva.estado_pago === 'pagada' && reserva.tarifa_aplicada != null && reserva.estado_asistencia !== 'cancelo' && (
+                      <div className="cli-pago-nota ok" data-pago="pagada">
+                        Pagado: S/ {Number(reserva.tarifa_aplicada).toFixed(2)}
+                        {reserva.estado_asistencia === 'pendiente' && <small> · reembolso si cancelas con {HORAS_REEMBOLSO} h o más de anticipación</small>}
+                      </div>
+                    )}
+                    {reserva.estado_pago === 'reembolsada' && (
+                      <div className="cli-pago-nota ok" data-pago="reembolsada">
+                        Reembolsado: S/ {Number(reserva.tarifa_aplicada || 0).toFixed(2)} por el mismo medio de pago
+                      </div>
+                    )}
+                    {reserva.estado_pago === 'pagada' && reserva.estado_asistencia === 'cancelo' && (
+                      <div className="cli-pago-nota" data-pago="retenido">Cancelada con menos de {HORAS_REEMBOLSO} h de anticipación: el pago no se reembolsa</div>
+                    )}
+                  </div>
+                  <div className="cli-acciones">
+                    <span className={`cli-badge ${claseBadgeEstado(reserva.estado || reserva.estado_asistencia)}`}>
+                      {etiquetaEstadoReserva(reserva.estado || reserva.estado_asistencia)}
+                    </span>
+                    {reserva.estado_pago === 'pendiente' && reserva.estado_asistencia === 'pendiente' && (
+                      <button type="button" data-accion="pagar-reserva" className="cli-btn-primario cli-btn-pagar" disabled={cargando} onClick={() => setPagando(reserva)}>
+                        Pagar ahora
+                      </button>
+                    )}
+                    {(reserva.estado === 'pendiente' || reserva.estado_asistencia === 'pendiente') && (
+                      <button
+                        onClick={() => handleCancelar(reserva)}
+                        disabled={cargando}
+                        className="cli-btn-cancelar"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="ayuda">No tienes reservas registradas.</p>
           )}
-
-          <button
-            type="submit"
-            disabled={cargando || turnoLleno}
-            className="cli-btn-primario"
-          >
-            {cargando ? 'Agendando...' : turnoLleno ? 'Turno lleno' : 'Agendar Turno'}
-          </button>
-        </form>
-      </div>
-
-      <div className="tarjeta">
-        <h2>Mis Turnos Agendados</h2>
-        {reservas.length > 0 ? (
-          <ul className="cli-lista">
-            {reservas.map((reserva) => (
-              <li key={reserva.id_cita} className="cli-item-reserva">
-                <div>
-                  <strong>
-                    {reserva.servicio
-                      ? reserva.servicio.charAt(0).toUpperCase() + reserva.servicio.slice(1)
-                      : 'Sauna'}
-                  </strong>{' '}
-                  — Sede {reserva.sede}
-                  <div>{formatearFechaPe(reserva.fecha_hora_cita || reserva.fecha_hora)}</div>
-                  {reserva.estado_pago === 'pendiente' && (reserva.estado_asistencia === 'pendiente') && (
-                    <div className="cli-pago-nota" data-pago="pendiente">
-                      Por pagar{reserva.tarifa_aplicada != null ? `: S/ ${Number(reserva.tarifa_aplicada).toFixed(2)}` : ''} · paga ahora en línea o en recepción al llegar
-                    </div>
-                  )}
-                  {reserva.estado_pago === 'pagada' && reserva.tarifa_aplicada != null && reserva.estado_asistencia !== 'cancelo' && (
-                    <div className="cli-pago-nota ok" data-pago="pagada">
-                      Pagado: S/ {Number(reserva.tarifa_aplicada).toFixed(2)}
-                      {reserva.estado_asistencia === 'pendiente' && <small> · reembolso si cancelas con {HORAS_REEMBOLSO} h o más de anticipación</small>}
-                    </div>
-                  )}
-                  {reserva.estado_pago === 'reembolsada' && (
-                    <div className="cli-pago-nota ok" data-pago="reembolsada">
-                      Reembolsado: S/ {Number(reserva.tarifa_aplicada || 0).toFixed(2)} por el mismo medio de pago
-                    </div>
-                  )}
-                  {reserva.estado_pago === 'pagada' && reserva.estado_asistencia === 'cancelo' && (
-                    <div className="cli-pago-nota" data-pago="retenido">Cancelada con menos de {HORAS_REEMBOLSO} h de anticipación: el pago no se reembolsa</div>
-                  )}
-                </div>
-                <div className="cli-acciones">
-                  <span className={`cli-badge ${claseBadgeEstado(reserva.estado || reserva.estado_asistencia)}`}>
-                    {etiquetaEstadoReserva(reserva.estado || reserva.estado_asistencia)}
-                  </span>
-                  {reserva.estado_pago === 'pendiente' && reserva.estado_asistencia === 'pendiente' && (
-                    <button type="button" data-accion="pagar-reserva" className="cli-btn-primario cli-btn-pagar" disabled={cargando} onClick={() => setPagando(reserva)}>
-                      Pagar ahora
-                    </button>
-                  )}
-                  {(reserva.estado === 'pendiente' || reserva.estado_asistencia === 'pendiente') && (
-                    <button
-                      onClick={() => handleCancelar(reserva)}
-                      disabled={cargando}
-                      className="cli-btn-cancelar"
-                    >
-                      Cancelar
-                    </button>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="ayuda">No tienes reservas registradas.</p>
-        )}
+        </div>
       </div>
 
       {pagando && (

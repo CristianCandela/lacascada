@@ -275,6 +275,25 @@ export const mock = {
     actualizar_mi_perfil(a, ctx) {
       const cli = clienteActual(ctx);
       if (!cli) return soloClientes();
+
+      if (a.p_nombre !== undefined) {
+        const nom = String(a.p_nombre || '').trim();
+        if (nom.length < 3) {
+          return ok({ ok: false, motivo: 'Escribe tu nombre completo (mínimo 3 caracteres).' });
+        }
+        cli.nombre = nom;
+        const p = ctx.db.perfiles.find((x) => x.id === cli.id_usuario);
+        if (p) p.nombre = nom;
+      }
+
+      if (a.p_telefono !== undefined) {
+        const tel = String(a.p_telefono || '').trim();
+        if (!/^[0-9]{9}$/.test(tel)) {
+          return ok({ ok: false, motivo: 'El teléfono / WhatsApp debe tener 9 dígitos.' });
+        }
+        cli.telefono = tel;
+      }
+
       if (a.p_fecha_nacimiento !== undefined) {
         const fn = String(a.p_fecha_nacimiento || '').trim();
         if (fn) {
@@ -289,17 +308,24 @@ export const mock = {
         }
         cli.fecha_nacimiento = fn;
       }
+
       if (a.p_foto_url !== undefined) {
         cli.foto_url = String(a.p_foto_url || '');
       }
+
       if (ctx.registrar) {
         ctx.registrar('clientes', 'actualizar_perfil', cli.id_cliente, cli.id_cliente, {
+          nombre: cli.nombre,
+          telefono: cli.telefono,
           fecha_nacimiento: cli.fecha_nacimiento,
           tiene_foto: Boolean(cli.foto_url)
         });
       }
+
       return ok({
         ok: true,
+        nombre: cli.nombre,
+        telefono: cli.telefono,
         fecha_nacimiento: cli.fecha_nacimiento || '',
         foto_url: cli.foto_url || ''
       });

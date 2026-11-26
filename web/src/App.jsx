@@ -18,6 +18,25 @@ function Aplicacion({ ruta }) {
   const avisar = useCallback((m, tipo = 'error') => setAviso(m ? { m, tipo } : null), []);
 
   const cambiar = (t) => { setAviso(null); setTab(t); };
+  const visibles = perfil ? modulosDeRol(perfil.rol) : [];
+
+  useEffect(() => {
+    const alNavegar = (e) => {
+      const destino = String(e.detail?.tab || '').toLowerCase();
+      if (!destino) return;
+      const coincide = visibles.find((m) => {
+        const id = String(m.id || '').toLowerCase();
+        const texto = String(m.texto || '').toLowerCase();
+        return id === destino || id.includes(destino) || texto.includes(destino);
+      });
+      if (coincide) {
+        setAviso(null);
+        setTab(coincide.id);
+      }
+    };
+    window.addEventListener('lacascada:navegar', alNavegar);
+    return () => window.removeEventListener('lacascada:navegar', alNavegar);
+  }, [visibles]);
 
   if (cargando) return <p className="cargando-pagina">Cargando…</p>;
   if (!perfil) {
@@ -31,7 +50,6 @@ function Aplicacion({ ruta }) {
   }
 
   // El menú sale del registro de módulos (features/): cada rol ve solo sus pantallas.
-  const visibles = modulosDeRol(perfil.rol);
   const activo = visibles.find((m) => m.id === tab) || visibles[0];
 
   return (
